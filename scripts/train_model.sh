@@ -7,7 +7,7 @@
 #SBATCH --time=10:00:00
 #SBATCH --job-name=train_rnn
 #SBATCH --partition=short
-#SBATCH --output=/home/lina4471/willett2023/rnn/train_rnn.%j.out
+#SBATCH --output=/home/lina4471/willett2023/slurm_out/train_rnn.%j.out
 #SBATCH --mail-type=BEGIN,END
 #SBATCH --mail-user=anna.gerhaher@linacre.ox.ac.uk
 
@@ -20,4 +20,4 @@ module load CMake/3.23.1-GCCcore-11.3.0
 module load GCC/11.3.0
 module load CUDA/12.0
 
-python $DATA/repos/neural_seq_decoder/scripts/train_model.py
+python -u $DATA/repos/neural_seq_decoder/scripts/train_model.py

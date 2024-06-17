@@ -6,7 +6,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --partition=short
 #SBATCH --time=02:00:00
-#SBATCH --output=/home/lina4471/willett2023/rnn/eval_rnn.%j.out
+#SBATCH --output=/home/lina4471/willett2023/slurm_out/eval_rnn.%j.out
 #SBATCH --mail-type=BEGIN,END
 #SBATCH --mail-user=anna.gerhaher@linacre.ox.ac.uk
 
