@@ -81,9 +81,12 @@ class GRUDecoder(nn.Module):
             self.fc_decoder_out = nn.Linear(hidden_dim, n_classes + 1)  # +1 for CTC blank
 
     def forward(self, neuralInput, dayIdx):
+        # print("\nIn foward() ...")
+        # print(f"neuralInput.size() = {neuralInput.size()}")
         neuralInput = torch.permute(neuralInput, (0, 2, 1))
         neuralInput = self.gaussianSmoother(neuralInput)
         neuralInput = torch.permute(neuralInput, (0, 2, 1))
+        # print(f"neuralInput.size() = {neuralInput.size()}")
 
         # apply day layer
         dayWeights = torch.index_select(self.dayWeights, 0, dayIdx)
@@ -91,6 +94,7 @@ class GRUDecoder(nn.Module):
             "btd,bdk->btk", neuralInput, dayWeights
         ) + torch.index_select(self.dayBias, 0, dayIdx)
         transformedNeural = self.inputLayerNonlinearity(transformedNeural)
+        # print(f"transformedNeural.size() = {transformedNeural.size()}")
 
         # stride/kernel
         stridedInputs = torch.permute(
@@ -99,6 +103,7 @@ class GRUDecoder(nn.Module):
             ),
             (0, 2, 1),
         )
+        # print(f"stridedInputs.size() = {stridedInputs.size()}")
 
         # apply RNN layer
         if self.bidirectional:

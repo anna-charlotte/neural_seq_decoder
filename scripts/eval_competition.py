@@ -1,3 +1,4 @@
+print("In eval_competition.py ...")
 import re
 import time
 import pickle
@@ -5,13 +6,14 @@ import numpy as np
 
 from edit_distance import SequenceMatcher
 import torch
-from dataset import SpeechDataset
+from neural_decoder.dataset import SpeechDataset
 
 import matplotlib.pyplot as plt
 
 
-from nnDecoderModel import getDatasetLoaders
-from nnDecoderModel import loadModel
+from neural_decoder.neural_decoder_trainer import loadModel, getDatasetLoaders
+
+# from nnDecoderModel import loadModel
 import neuralDecoder.utils.lmDecoderUtils as lmDecoderUtils
 import pickle
 import argparse
@@ -24,9 +26,11 @@ input_args = parser.parse_args()
 with open(input_args.modelPath + "/args", "rb") as handle:
     args = pickle.load(handle)
 
-args["datasetPath"] = "/oak/stanford/groups/henderj/stfan/data/ptDecoder_ctc"
+args["datasetPath"] = (
+    "/data/engs-pnpl/lina4471/willett2023/competitionData/ptDecoder_ctc"
+)
 trainLoaders, testLoaders, loadedData = getDatasetLoaders(
-    args["datasetPath"], args["seqLen"], args["maxTimeSeriesLen"], args["batchSize"]
+    args["datasetPath"], args["batchSize"]
 )
 
 model = loadModel(input_args.modelPath, device="cpu")
@@ -42,9 +46,14 @@ rnn_outputs = {
     "transcriptions": [],
 }
 partition = "competition"
-for i, testDayIdx in enumerate([4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 18, 19, 20]):
+for i, testDayIdx in enumerate(
+    [
+        4,
+    ]
+):  # 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 18, 19, 20]):
     # for i, testDayIdx in enumerate(range(len(loadedData[partition]))):
-    test_ds = SpeechDataset([loadedData[partition][testDayIdx]])
+    print(f"i = {i}")
+    test_ds = SpeechDataset([loadedData[partition][i]])
     test_loader = torch.utils.data.DataLoader(
         test_ds, batch_size=1, shuffle=False, num_workers=0
     )
@@ -75,16 +84,17 @@ for i, testDayIdx in enumerate([4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 18, 19
 
 
 MODEL_CACHE_DIR = "/scratch/users/stfan/huggingface"
+print(f"\nMODEL_CACHE_DIR = {MODEL_CACHE_DIR}", flush=True)
 # Load OPT 6B model
 llm, llm_tokenizer = lmDecoderUtils.build_opt(
     cacheDir=MODEL_CACHE_DIR, device="auto", load_in_8bit=True
 )
 
-lmDir = "/oak/stanford/groups/henderj/stfan/code/nptlrig2/LanguageModelDecoder/examples/speech/s0/lm_order_exp/5gram/data/lang_test"
+lmDir = "/data/engs-pnpl/lina4471/willett2023/languageModel"
+print(f"\nlmDir = {lmDir}", flush=True)
 ngramDecoder = lmDecoderUtils.build_lm_decoder(
     lmDir, acoustic_scale=0.5, nbest=100, beam=18
 )
-
 
 
 # LM decoding hyperparameters
@@ -97,11 +107,13 @@ llm_outputs = []
 start_t = time.time()
 nbest_outputs = []
 for j in range(len(rnn_outputs["logits"])):
+    print(f"j = {j}", flush=True)
     logits = rnn_outputs["logits"][j]
     logits = np.concatenate(
         [logits[:, 1:], logits[:, 0:1]], axis=-1
     )  # Blank is last token
     logits = lmDecoderUtils.rearrange_speech_logits(logits[None, :, :], has_sil=True)
+    print("Decoding ...", flush=True)
     nbest = lmDecoderUtils.lm_decode(
         ngramDecoder,
         logits[0],
@@ -134,10 +146,14 @@ llm_out = lmDecoderUtils.cer_with_gpt2_decoder(
 print(f"LLM decoding took {time_per_sample} seconds per sample")
 
 print(llm_out["cer"], llm_out["wer"])
-with open(input_args.modelPath + "/llm_out", "wb") as handle:
+file = input_args.modelPath + "/llm_out"
+with open(file, "wb") as handle:
+    print(f"Write llm output to: {variable}")
     pickle.dump(llm_out, handle)
 
 decodedTranscriptions = llm_out["decoded_transcripts"]
-with open(input_args.modelPath + "/5gramLLMCompetitionSubmission.txt", "w") as f:
+file = input_args.modelPath + "/5gramLLMCompetitionSubmission.txt"
+with open(file, "w") as f:
+    print(f"Write decoded transcriptions to: {file}")
     for x in range(len(decodedTranscriptions)):
         f.write(decodedTranscriptions[x] + "\n")
