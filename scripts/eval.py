@@ -136,8 +136,18 @@ if __name__ == "__main__":
     homeDir =  os.environ['HOME']
 
     datsetPath = baseDir + "/competitionData/pytorchTFRecords.pkl"
-    modelPath = homeDir + "/willett2023/competitionData/model/speechBaseline4"
-    modelOutPath = homeDir + "/willett2023/competitionData/rnn"
+    modelPath = baseDir + "/willett2023/competitionData/model/speechBaseline4"
+    modelOutPath = baseDir + "/willett2023/competitionData/rnn"
+    modelPath = baseDir + "/rnn/speechBaseline4"
+    modelOutPath = baseDir + "/competitionData/rnn"
+
+    modelPath = baseDir + "/competitionData/model/speechBaseline4"
+    datsetPath = baseDir + "/competitionData/pytorchTFRecords.pkl"
+    modelOutPath = baseDir + "/competitionData/rnn"
+
+    print(f"modelPath = {modelPath}")
+    print(f"modelOutPath = {modelOutPath}")
+    print(f"datsetPath = {datsetPath}")
 
     # Load dataset and rnn model
     with open(modelPath + "/args", "rb") as handle:
