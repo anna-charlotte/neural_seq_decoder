@@ -1,10 +1,10 @@
-from neural_decoder.neural_decoder_trainer import getDatasetLoaders, trainModel
-from text2brain.rnn import Text2BrainInterface
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
 import torch.nn.functional as F
 import torch.optim as optim
+from neural_decoder.neural_decoder_trainer import getDatasetLoaders, trainModel
+from text2brain.rnn import Text2BrainInterface
 
 
 class Encoder(nn.Module):

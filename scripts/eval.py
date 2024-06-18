@@ -1,19 +1,17 @@
-
-import re
-import pickle
-import numpy as np
 import os
-
-import torch
-from neural_decoder.dataset import SpeechDataset
-from neuralDecoder.utils.lmDecoderUtils import lm_decode, rearrange_speech_logits
-from neural_decoder.neural_decoder_trainer import getDatasetLoaders, loadModel
-import neuralDecoder.utils.lmDecoderUtils as lmDecoderUtils
-from neuralDecoder.utils.lmDecoderUtils import _cer_and_wer as cer_and_wer
 import pickle
-from tqdm import tqdm
-from edit_distance import SequenceMatcher
+import re
+
 import matplotlib.pyplot as pyplot
+import neuralDecoder.utils.lmDecoderUtils as lmDecoderUtils
+import numpy as np
+import torch
+from edit_distance import SequenceMatcher
+from neural_decoder.dataset import SpeechDataset
+from neural_decoder.neural_decoder_trainer import getDatasetLoaders, loadModel
+from neuralDecoder.utils.lmDecoderUtils import _cer_and_wer as cer_and_wer
+from neuralDecoder.utils.lmDecoderUtils import lm_decode, rearrange_speech_logits
+from tqdm import tqdm
 
 
 def cer(logits, X_len, y, y_len):
@@ -30,13 +28,9 @@ def cer(logits, X_len, y, y_len):
         decodedSeq = decodedSeq.cpu().detach().numpy()
         decodedSeq = np.array([i for i in decodedSeq if i != 0])
 
-        trueSeq = np.array(
-            y[iterIdx][0 : y_len[iterIdx]].cpu().detach()
-        )
+        trueSeq = np.array(y[iterIdx][0 : y_len[iterIdx]].cpu().detach())
 
-        matcher = SequenceMatcher(
-            a=trueSeq.tolist(), b=decodedSeq.tolist()
-        )
+        matcher = SequenceMatcher(a=trueSeq.tolist(), b=decodedSeq.tolist())
         total_edit_distance += matcher.distance()
         total_seq_length += len(trueSeq)
 
@@ -69,7 +63,9 @@ def get_model_outputs(days, partition, loadedData, model, device):
                 torch.tensor([testDayIdx], dtype=torch.int64).to(device),
             )
             pred = model.forward(X, dayIdx)
-            adjustedLens = X_len #((X_len - model.kernelLen) / model.strideLen).to(torch.int32)
+            adjustedLens = (
+                X_len  # ((X_len - model.kernelLen) / model.strideLen).to(torch.int32)
+            )
 
             for iterIdx in range(pred.shape[0]):
                 model_outputs["logits"].append(pred[iterIdx].cpu().detach().numpy())
@@ -87,19 +83,23 @@ def get_model_outputs(days, partition, loadedData, model, device):
             model_outputs["cer"].append(cer(pred, adjustedLens, y, y_len))
 
     # Logits have different length
-    maxLogitLength = max([l.shape[0] for l in model_outputs['logits']])
-    model_outputs['logits'] = [np.pad(l, [[0, maxLogitLength-l.shape[0]], [0, 0]]) for l in model_outputs['logits']]
-    model_outputs['logits'] = np.stack(model_outputs['logits'], axis=0)
-    model_outputs['logitLengths'] = np.array(model_outputs['logitLengths'])
-    model_outputs['transcriptions'] = np.array(model_outputs['transcriptions'])
-    model_outputs['cer'] = np.array(model_outputs['cer'])
+    maxLogitLength = max([l.shape[0] for l in model_outputs["logits"]])
+    model_outputs["logits"] = [
+        np.pad(l, [[0, maxLogitLength - l.shape[0]], [0, 0]])
+        for l in model_outputs["logits"]
+    ]
+    model_outputs["logits"] = np.stack(model_outputs["logits"], axis=0)
+    model_outputs["logitLengths"] = np.array(model_outputs["logitLengths"])
+    model_outputs["transcriptions"] = np.array(model_outputs["transcriptions"])
+    model_outputs["cer"] = np.array(model_outputs["cer"])
 
     # Shift left all phonemes!!!
-    logits = model_outputs['logits']
-    model_outputs['logits'] = np.concatenate([logits[:, :, 1:], logits[:, :, :1]], axis=-1)
+    logits = model_outputs["logits"]
+    model_outputs["logits"] = np.concatenate(
+        [logits[:, :, 1:], logits[:, :, :1]], axis=-1
+    )
 
     return model_outputs
-
 
 
 def inputInfo(input):
@@ -110,31 +110,41 @@ def inputInfo(input):
             print(key, type(input[key]), flush=True)
 
 
-
 def evaluate(ngramDecoder, model_test_outputs, model_holdOut_outputs, outputFilePath):
 
     print("\nDecoding Test...\n", flush=True)
-    decoder_out_test = lmDecoderUtils.cer_with_lm_decoder(ngramDecoder, model_test_outputs, outputType='speech_sil', blankPenalty=np.log(2))
+    decoder_out_test = lmDecoderUtils.cer_with_lm_decoder(
+        ngramDecoder,
+        model_test_outputs,
+        outputType="speech_sil",
+        blankPenalty=np.log(2),
+    )
 
     print(f"\n-------- WER: {decoder_out_test['wer']:.3f} --------\n", flush=True)
 
     print("\nDecoding HoldOut...\n", flush=True)
-    decoder_out_holdOut = lmDecoderUtils.cer_with_lm_decoder(ngramDecoder, model_holdOut_outputs, outputType='speech_sil', blankPenalty=np.log(2))
-    
+    decoder_out_holdOut = lmDecoderUtils.cer_with_lm_decoder(
+        ngramDecoder,
+        model_holdOut_outputs,
+        outputType="speech_sil",
+        blankPenalty=np.log(2),
+    )
+
     filename = f"{outputFilePath}_cer_{decoder_out_test['cer']:.3f}_wer_{decoder_out_test['wer']:.3f}.txt"
 
     print("\nSaving " + filename + " ...\n", flush=True)
-    with open(filename, 'w') as f:
-        for decoded_transcript in decoder_out_holdOut['decoded_transcripts']:
-            f.write(decoded_transcript+'\n')
-
+    with open(filename, "w") as f:
+        for decoded_transcript in decoder_out_holdOut["decoded_transcripts"]:
+            f.write(decoded_transcript + "\n")
 
 
 if __name__ == "__main__":
 
-    baseDir = root_directory = os.environ['DATA'] + '/willett2023'
+    baseDir = root_directory = os.environ["DATA"] + "/willett2023"
 
-    datsetPath = "/data/engs-pnpl/lina4471/willett2023/competitionData/pytorchTFRecords.pkl"
+    datsetPath = (
+        "/data/engs-pnpl/lina4471/willett2023/competitionData/pytorchTFRecords.pkl"
+    )
     modelPath = "/home/lina4471/willett2023/competitionData/model/speechBaseline4"
     modelOutPath = "/home/lina4471/willett2023/competitionData/rnn"
 
@@ -156,12 +166,23 @@ if __name__ == "__main__":
     model.eval()
     print(f"Model loaded.")
 
-    model_test_outputs = get_model_outputs(days=range(4,19), partition="test", loadedData=loadedData, model=model, device=device)
+    model_test_outputs = get_model_outputs(
+        days=range(4, 19),
+        partition="test",
+        loadedData=loadedData,
+        model=model,
+        device=device,
+    )
     print("Test raw CER: ", np.mean(model_test_outputs["cer"]), flush=True)
 
     holdOutDays = [4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 18, 19, 20]
-    model_holdOut_outputs = get_model_outputs(days=holdOutDays, partition="competition", loadedData=loadedData, model=model, device=device)
-
+    model_holdOut_outputs = get_model_outputs(
+        days=holdOutDays,
+        partition="competition",
+        loadedData=loadedData,
+        model=model,
+        device=device,
+    )
 
     test_out_path = modelOutPath + "_test.pkl"
     holdout_out_path = modelOutPath + "_holdOut.pkl"
@@ -178,8 +199,6 @@ if __name__ == "__main__":
     print(holdout_out_path + " structure:", flush=True)
     inputInfo(model_holdOut_outputs)
 
-
-
     # load the rnn outputs pkl for the LM
     with open(test_out_path, "rb") as handle:
         model_test_outputs = pickle.load(handle)
@@ -193,21 +212,12 @@ if __name__ == "__main__":
     print(holdout_out_path + " structure:", flush=True)
     inputInfo(model_holdOut_outputs)
 
-
-
-
-    #loads the language model, could take a while and requires ~60 GB of memory
+    # loads the language model, could take a while and requires ~60 GB of memory
     print("Load LM ...")
-    lmDir = baseDir+'/languageModel'
+    lmDir = baseDir + "/languageModel"
     ngramDecoder = lmDecoderUtils.build_lm_decoder(
-        lmDir,
-        acoustic_scale=0.8, #1.2
-        nbest=1,
-        beam=18
+        lmDir, acoustic_scale=0.8, nbest=1, beam=18  # 1.2
     )
     print("LM loaded.")
 
     evaluate(ngramDecoder, model_test_outputs, model_holdOut_outputs, modelOutPath)
-
-
-

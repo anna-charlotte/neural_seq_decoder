@@ -1,5 +1,6 @@
 import math
 import numbers
+
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -14,6 +15,7 @@ class WhiteNoise(nn.Module):
         noise = torch.randn_like(x) * self.std
         return x + noise
 
+
 class MeanDriftNoise(nn.Module):
     def __init__(self, std=0.1):
         super().__init__()
@@ -23,6 +25,7 @@ class MeanDriftNoise(nn.Module):
         _, C = x.shape
         noise = torch.randn(1, C) * self.std
         return x + noise
+
 
 class GaussianSmoothing(nn.Module):
     """

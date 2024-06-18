@@ -1,10 +1,9 @@
-import torch.nn as nn
-from pathlib import Path
 import pickle
+from pathlib import Path
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
 
 # class Text2BrainInterface(nn.Module):
 #     def __init__(self):
@@ -32,29 +31,32 @@ class TextToBrainGRU(nn.Module):
         if len(x.size()) == 2:
             x = F.one_hot(x.long(), num_classes=41).float()
 
-        output, hidden = self.gru_encoder(x) 
+        output, hidden = self.gru_encoder(x)
         # output size = (bs, n, 128)
         # hidden size = (n_layers=1, bs, 128)
 
         batch_size = x.size(0)
-        
+
         # Prepare the initial input for the decoder (start token, could be zeros)
         decoder_input = torch.zeros(batch_size, 1, self.hidden_dim)
-        
+
         # artificially set the output length
         output_length = 12 * x.size(1)
-        
+
         # Initialize the output tensor
-        outputs = torch.zeros(batch_size, output_length, self.fc.out_features).to(x.device)
-        
+        outputs = torch.zeros(batch_size, output_length, self.fc.out_features).to(
+            x.device
+        )
+
         # Decode the encoded context vector
         for t in range(output_length):
             decoder_output, hidden = self.gru_decoder(decoder_input, hidden)
             out = self.fc(decoder_output)
             outputs[:, t, :] = out.squeeze(1)
             decoder_input = decoder_output
-        
+
         return outputs
+
 
 def pad_to_match(tensor_a, tensor_b):
     """
@@ -77,9 +79,9 @@ def load_model(model_dir: Path):
 
     if args["model_class"] == TextToBrainGRU.__name__:
         model = TextToBrainGRU(
-            input_dim=args["n_input_features"], 
-            hidden_dim=args["hidden_dim"], 
-            output_dim=args["n_output_features"], 
+            input_dim=args["n_input_features"],
+            hidden_dim=args["hidden_dim"],
+            output_dim=args["n_output_features"],
             n_layers=args["n_layers"],
         )
     else:

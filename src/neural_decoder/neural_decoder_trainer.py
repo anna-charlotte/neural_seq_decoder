@@ -2,15 +2,15 @@ import os
 import pickle
 import time
 
-from edit_distance import SequenceMatcher
 import hydra
 import numpy as np
 import torch
+from edit_distance import SequenceMatcher
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 
-from .model import GRUDecoder
 from .dataset import SpeechDataset
+from .model import GRUDecoder
 
 
 def getDatasetLoaders(
@@ -26,7 +26,7 @@ def getDatasetLoaders(
 
         X_padded = pad_sequence(X, batch_first=True, padding_value=0)
         y_padded = pad_sequence(y, batch_first=True, padding_value=0)
-    
+
         return (
             X_padded,
             y_padded,
@@ -56,6 +56,7 @@ def getDatasetLoaders(
     )
 
     return train_loader, test_loader, loadedData
+
 
 def trainModel(args):
     os.makedirs(args["outputDir"], exist_ok=True)
@@ -130,7 +131,7 @@ def trainModel(args):
 
         # Compute prediction error
         pred = model.forward(X, dayIdx)
-        
+
         loss = loss_ctc(
             torch.permute(pred.log_softmax(2), [1, 0, 2]),
             y,
@@ -244,6 +245,7 @@ def loadModel(modelDir, nInputLayers=24, device="cuda"):
 def main(cfg):
     cfg.outputDir = os.getcwd()
     trainModel(cfg)
+
 
 if __name__ == "__main__":
     main()

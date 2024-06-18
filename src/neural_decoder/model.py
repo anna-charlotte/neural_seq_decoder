@@ -78,7 +78,9 @@ class GRUDecoder(nn.Module):
                 hidden_dim * 2, n_classes + 1
             )  # +1 for CTC blank
         else:
-            self.fc_decoder_out = nn.Linear(hidden_dim, n_classes + 1)  # +1 for CTC blank
+            self.fc_decoder_out = nn.Linear(
+                hidden_dim, n_classes + 1
+            )  # +1 for CTC blank
 
     def forward(self, neuralInput, dayIdx):
         # print("\nIn foward() ...")
@@ -99,7 +101,9 @@ class GRUDecoder(nn.Module):
 
         # stride/kernel
         print(f"transformedNeural.size() = {transformedNeural.size()}")
-        print(f"torch.unsqueeze(torch.permute(transformedNeural, (0, 2, 1)), 3).size() = {torch.unsqueeze(torch.permute(transformedNeural, (0, 2, 1)), 3).size()}")
+        print(
+            f"torch.unsqueeze(torch.permute(transformedNeural, (0, 2, 1)), 3).size() = {torch.unsqueeze(torch.permute(transformedNeural, (0, 2, 1)), 3).size()}"
+        )
         stridedInputs = torch.permute(
             self.unfolder(
                 torch.unsqueeze(torch.permute(transformedNeural, (0, 2, 1)), 3)
@@ -128,7 +132,6 @@ class GRUDecoder(nn.Module):
 
         hid, _ = self.gru_decoder(stridedInputs, h0.detach())
         print(f"hid.size() = {hid.size()}")
-
 
         # get seq
         seq_out = self.fc_decoder_out(hid)
