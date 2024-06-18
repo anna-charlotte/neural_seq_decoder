@@ -20,4 +20,4 @@ module load CMake/3.23.1-GCCcore-11.3.0
 module load GCC/11.3.0
 module load CUDA/12.0
 
-python -u $DATA/repos/neural_seq_decoder/scripts/train_model.py
+python -u $DATA/repos/neural_seq_decoder/scripts/train_b2t_rnn.py
