@@ -133,21 +133,10 @@ def evaluate(ngramDecoder, model_test_outputs, model_holdOut_outputs, outputFile
 if __name__ == "__main__":
 
     baseDir = root_directory = os.environ['DATA'] + '/willett2023'
-    homeDir =  os.environ['HOME']
 
-    datsetPath = baseDir + "/competitionData/pytorchTFRecords.pkl"
-    modelPath = baseDir + "/willett2023/competitionData/model/speechBaseline4"
-    modelOutPath = baseDir + "/willett2023/competitionData/rnn"
-    modelPath = baseDir + "/rnn/speechBaseline4"
-    modelOutPath = baseDir + "/competitionData/rnn"
-
-    modelPath = baseDir + "/competitionData/model/speechBaseline4"
-    datsetPath = baseDir + "/competitionData/pytorchTFRecords.pkl"
-    modelOutPath = baseDir + "/competitionData/rnn"
-
-    print(f"modelPath = {modelPath}")
-    print(f"modelOutPath = {modelOutPath}")
-    print(f"datsetPath = {datsetPath}")
+    datsetPath = "/data/engs-pnpl/lina4471/willett2023/competitionData/pytorchTFRecords.pkl"
+    modelPath = "/home/lina4471/willett2023/competitionData/model/speechBaseline4"
+    modelOutPath = "/home/lina4471/willett2023/competitionData/rnn"
 
     # Load dataset and rnn model
     with open(modelPath + "/args", "rb") as handle:
@@ -203,6 +192,8 @@ if __name__ == "__main__":
 
     print(holdout_out_path + " structure:", flush=True)
     inputInfo(model_holdOut_outputs)
+
+
 
 
     #loads the language model, could take a while and requires ~60 GB of memory
