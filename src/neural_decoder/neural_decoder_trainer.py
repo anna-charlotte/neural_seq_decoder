@@ -17,6 +17,7 @@ def getDatasetLoaders(
     datasetName,
     batchSize,
 ):
+    print("In getDatasetLoaders()")
     with open(datasetName, "rb") as handle:
         loadedData = pickle.load(handle)
 
@@ -129,8 +130,7 @@ def trainModel(args):
 
         # Compute prediction error
         pred = model.forward(X, dayIdx)
-        print(f"pred.size() = {pred.size()}")
-
+        
         loss = loss_ctc(
             torch.permute(pred.log_softmax(2), [1, 0, 2]),
             y,

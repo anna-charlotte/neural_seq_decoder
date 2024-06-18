@@ -82,7 +82,8 @@ class GRUDecoder(nn.Module):
 
     def forward(self, neuralInput, dayIdx):
         # print("\nIn foward() ...")
-        # print(f"neuralInput.size() = {neuralInput.size()}")
+        # print(f"\nneuralInput.size() = {neuralInput.size()}")
+
         neuralInput = torch.permute(neuralInput, (0, 2, 1))
         neuralInput = self.gaussianSmoother(neuralInput)
         neuralInput = torch.permute(neuralInput, (0, 2, 1))
@@ -97,13 +98,15 @@ class GRUDecoder(nn.Module):
         # print(f"transformedNeural.size() = {transformedNeural.size()}")
 
         # stride/kernel
+        print(f"transformedNeural.size() = {transformedNeural.size()}")
+        print(f"torch.unsqueeze(torch.permute(transformedNeural, (0, 2, 1)), 3).size() = {torch.unsqueeze(torch.permute(transformedNeural, (0, 2, 1)), 3).size()}")
         stridedInputs = torch.permute(
             self.unfolder(
                 torch.unsqueeze(torch.permute(transformedNeural, (0, 2, 1)), 3)
             ),
             (0, 2, 1),
         )
-        # print(f"stridedInputs.size() = {stridedInputs.size()}")
+        print(f"stridedInputs.size() = {stridedInputs.size()}")
 
         # apply RNN layer
         if self.bidirectional:
@@ -120,9 +123,16 @@ class GRUDecoder(nn.Module):
                 self.hidden_dim,
                 device=self.device,
             ).requires_grad_()
+        print(f"\nh0.size() = {h0.size()}")
+        print(f"stridedInputs.size() = {stridedInputs.size()}")
 
         hid, _ = self.gru_decoder(stridedInputs, h0.detach())
+        print(f"hid.size() = {hid.size()}")
+
 
         # get seq
         seq_out = self.fc_decoder_out(hid)
+        print(f"seq_out.size() = {seq_out.size()}")
+
+        # print(f"seq_out.size() = {seq_out.size()}")
         return seq_out
