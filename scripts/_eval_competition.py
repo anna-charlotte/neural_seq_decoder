@@ -1,22 +1,19 @@
 print("In eval_competition.py ...")
+import argparse
+import pickle
 import re
 import time
-import pickle
-import numpy as np
-
-from edit_distance import SequenceMatcher
-import torch
-from neural_decoder.dataset import SpeechDataset
 
 import matplotlib.pyplot as plt
 
-
-from neural_decoder.neural_decoder_trainer import loadModel, getDatasetLoaders
-
 # from nnDecoderModel import loadModel
 import neuralDecoder.utils.lmDecoderUtils as lmDecoderUtils
-import pickle
-import argparse
+import numpy as np
+import torch
+from edit_distance import SequenceMatcher
+
+from neural_decoder.dataset import SpeechDataset
+from neural_decoder.neural_decoder_trainer import getDatasetLoaders, loadModel
 
 parser = argparse.ArgumentParser(description="")
 parser.add_argument("--modelPath", type=str, default=None, help="Path to model")

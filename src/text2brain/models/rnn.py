@@ -4,6 +4,7 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
 from text2brain.models.t2b_interface import TextToBrainInterface
 
 
@@ -16,7 +17,7 @@ class RNN(nn.Module):
         self.gru_encoder = nn.GRU(input_dim, hidden_dim, n_layers, batch_first=True)
         self.gru_decoder = nn.GRU(hidden_dim, hidden_dim, n_layers, batch_first=True)
         self.fc = nn.Linear(hidden_dim, output_dim)
-    
+
     def forward(self, x):
         # Forward propagate GRU
         lengths = (x != 0).sum(dim=1)
@@ -59,16 +60,16 @@ class TextToBrainGRU(TextToBrainInterface):
         self.model = RNN(input_dim, hidden_dim, output_dim, n_layers)
         self.criterion = nn.MSELoss()
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.001)
-        
+
     def forward(self, x):
         return self.model(x)
 
     def train_one_epoch(
         self,
-        X: torch.Tensor, 
-        y: torch.Tensor, 
-        X_len: torch.Tensor, 
-        y_len: torch.Tensor, 
+        X: torch.Tensor,
+        y: torch.Tensor,
+        X_len: torch.Tensor,
+        y_len: torch.Tensor,
         dayIdx: torch.Tensor,
     ) -> dict:
         self.model.train()
@@ -85,13 +86,12 @@ class TextToBrainGRU(TextToBrainInterface):
     def predict(self, X) -> torch.Tensor:
         self.model.eval()
         return self.model(X)
-        
+
     def save_weights(self, file_path: Path) -> None:
         torch.save(self.model.state_dict(), file_path)
 
     def load_weights(self, file_path: Path) -> None:
         self.model.load_state_dict(torch.load(file_path))
-
 
 
 def pad_to_match(tensor_a, tensor_b):
@@ -130,5 +130,5 @@ def load_model(model_dir: Path):
         raise ValueError(f"model_class is not valid: {args['model_class']}")
 
     model.load_weights(file_path=weights_file)
-    
+
     return model

@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+
 from neural_decoder.neural_decoder_trainer import getDatasetLoaders, trainModel
 from text2brain.rnn import Text2BrainInterface
 
@@ -11,7 +12,7 @@ class Encoder(nn.Module):
     def __init__(self, input_dim, hidden_dim):
         super(Encoder, self).__init__()
         self.gru = nn.GRU(input_dim, hidden_dim, batch_first=True)
-        
+
     def forward(self, src):
         if len(src.size()) == 2:
             print(f"\nlen(src.size()) = {len(src.size())}")
@@ -21,12 +22,13 @@ class Encoder(nn.Module):
         print(f"hidden.size() = {hidden.size()}")
         return hidden
 
+
 class Decoder(nn.Module):
     def __init__(self, output_dim, hidden_dim):
         super(Decoder, self).__init__()
         self.gru = nn.GRU(output_dim, hidden_dim, batch_first=True)
         self.fc = nn.Linear(hidden_dim, output_dim)
-        
+
     def forward(self, hidden):
         batch_size = hidden.size(1)
         seq_len = 500
@@ -41,7 +43,7 @@ class Seq2Seq(Text2BrainInterface):
         super(Seq2Seq, self).__init__()
         self.encoder = Encoder(input_dim, hidden_dim)
         self.decoder = Decoder(hidden_dim, output_dim)
-        
+
     def forward(self, src):
         hidden = self.encoder(src)
         outputs, hidden = self.decoder(hidden)
@@ -49,7 +51,9 @@ class Seq2Seq(Text2BrainInterface):
 
 
 class RNNText2Brain(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, layer_dim=1, bidirectional=False):
+    def __init__(
+        self, input_dim, hidden_dim, output_dim, layer_dim=1, bidirectional=False
+    ):
         super(RNNText2Brain, self).__init__()
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
@@ -64,17 +68,12 @@ class RNNText2Brain(nn.Module):
             batch_first=True,
             bidirectional=self.bidirectional,
         )
-        self.gru_decoder = nn.GRU( 
-            hidden_dim, 
-            output_dim,
-            batch_first=True
-        )
+        self.gru_decoder = nn.GRU(hidden_dim, output_dim, batch_first=True)
         # self.fc = nn.Linear(hidden_dim, output_dim)
 
-         # rnn outputs
-        self.fc_decoder_out = nn.Linear(hidden_dim, output_dim) 
+        # rnn outputs
+        self.fc_decoder_out = nn.Linear(hidden_dim, output_dim)
 
-        
     def forward(self, text):
         # apply RNN layer
         print(f"\ntext.size() = {text.size()}")
@@ -97,7 +96,7 @@ class RNNText2Brain(nn.Module):
         out, hidden = self.gru_encoder(text)
         print(f"out.size() = {out.size()}")
         print(f"hidden.size() = {hidden.size()}")
-        out, hidden = self.gru_decoder(out,hidden)
+        out, hidden = self.gru_decoder(out, hidden)
         print(f"out.size() = {out.size()}")
         print(f"hidden.size() = {hidden.size()}")
 
@@ -105,8 +104,6 @@ class RNNText2Brain(nn.Module):
         seq_out = self.fc_decoder_out(out)
         print(f"seq_out.size() = {seq_out.size()}")
         return seq_out
-
-
 
 
 def main(args: dict) -> None:
@@ -129,7 +126,7 @@ def main(args: dict) -> None:
         hidden_dim=args["hidden_dim"],
         # layer_dim=2,
     )
-    criterion = nn.MSELoss(reduction='none')
+    criterion = nn.MSELoss(reduction="none")
     optimizer = optim.Adam(model.parameters())
 
     for i in range(n_batches):
@@ -141,16 +138,17 @@ def main(args: dict) -> None:
         a = y.size(1)
         b = output.size(1)
         print(f"output.size() = {output.size()}")
-        
-        print(f"a/b = {a/b}")
 
+        print(f"a/b = {a/b}")
 
 
 if __name__ == "__main__":
     args = {}
     args["seed"] = 0
     args["device"] = "cpu"
-    args["dataset_path"] = "/data/engs-pnpl/lina4471/willett2023/competitionData/pytorchTFRecords.pkl"
+    args["dataset_path"] = (
+        "/data/engs-pnpl/lina4471/willett2023/competitionData/pytorchTFRecords.pkl"
+    )
     args["batch_size"] = 2
     args["n_batches"] = 10
     args["n_input_features"] = 41

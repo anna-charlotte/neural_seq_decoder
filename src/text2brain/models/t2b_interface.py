@@ -1,10 +1,10 @@
 import pickle
+from abc import ABC, abstractmethod
 from pathlib import Path
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from abc import ABC, abstractmethod
 
 
 class TextToBrainInterface(ABC):
@@ -20,7 +20,7 @@ class TextToBrainInterface(ABC):
     @abstractmethod
     def predict(self, text):
         raise NotImplementedError
-        
+
     @abstractmethod
     def save_weights(self, save_to_dir: Path):
         raise NotImplementedError

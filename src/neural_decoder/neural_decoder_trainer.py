@@ -116,7 +116,6 @@ def trainModel(args):
             y_len.to(device),
             dayIdx.to(device),
         )
-        # print(f"\nX.size() = {X.size()}")
 
         # Noise augmentation is faster on GPU
         if args["whiteNoiseSD"] > 0:
@@ -127,7 +126,6 @@ def trainModel(args):
                 torch.randn([X.shape[0], 1, X.shape[2]], device=device)
                 * args["constantOffsetSD"]
             )
-        # print(f"X.size() = {X.size()}")
 
         # Compute prediction error
         pred = model.forward(X, dayIdx)

@@ -1,11 +1,12 @@
 import os
+import pickle
 import re
-from g2p_en import G2p
+
+import matplotlib.pyplot as plt
 import numpy as np
 import scipy
 import scipy.io
-import pickle
-import matplotlib.pyplot as plt
+from g2p_en import G2p
 from tqdm import tqdm
 
 

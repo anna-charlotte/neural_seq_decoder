@@ -4,18 +4,10 @@ requires = ["setuptools>=46.1.0"]
 [tool.black]
 line-length = 88
 target-version = ['py38']
-include = '\.pyi?$'
+include = '\.py$'
 exclude = '''
-/(
-    \.eggs
-  | \.git
-  | \.hg
-  | \.mypy_cache
-  | \.tox
-  | \.venv
-  | build
-  | dist
-  | scripts/formatCompetitionData\.py  # Exclude this specific file
-)/
+formatCompetitionData.py
 '''
 
+[tool.isort]
+profile = "black"
