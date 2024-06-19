@@ -73,12 +73,8 @@ if __name__ == "__main__":
     args = {}
     args["seed"] = 0
     args["device"] = "cpu"
-    args["dataset_path"] = (
-        "/data/engs-pnpl/lina4471/willett2023/competitionData/pytorchTFRecords.pkl"
-    )
-    args["output_dir"] = (
-        "/data/engs-pnpl/lina4471/synthetic_data_willett2023/simple_rnn"
-    )
+    args["dataset_path"] = "/data/engs-pnpl/lina4471/willett2023/competitionData/pytorchTFRecords.pkl"
+    args["output_dir"] = "/data/engs-pnpl/lina4471/synthetic_data_willett2023/simple_rnn"
     args["batch_size"] = 64
     args["n_batches"] = 10000
     args["n_input_features"] = 41

@@ -52,9 +52,7 @@ def get_model_outputs(days, partition, loadedData, model, device):
             test_ds = SpeechDataset([loadedData[partition][i]])
         else:
             test_ds = SpeechDataset([loadedData[partition][testDayIdx]])
-        test_loader = torch.utils.data.DataLoader(
-            test_ds, batch_size=1, shuffle=False, num_workers=0
-        )
+        test_loader = torch.utils.data.DataLoader(test_ds, batch_size=1, shuffle=False, num_workers=0)
         for j, (X, y, X_len, y_len, day) in enumerate(test_loader):
             X, y, X_len, y_len, dayIdx = (
                 X.to(device),
@@ -64,15 +62,11 @@ def get_model_outputs(days, partition, loadedData, model, device):
                 torch.tensor([testDayIdx], dtype=torch.int64).to(device),
             )
             pred = model.forward(X, dayIdx)
-            adjustedLens = (
-                X_len  # ((X_len - model.kernelLen) / model.strideLen).to(torch.int32)
-            )
+            adjustedLens = X_len  # ((X_len - model.kernelLen) / model.strideLen).to(torch.int32)
 
             for iterIdx in range(pred.shape[0]):
                 model_outputs["logits"].append(pred[iterIdx].cpu().detach().numpy())
-                model_outputs["logitLengths"].append(
-                    adjustedLens[iterIdx].cpu().detach().item()
-                )
+                model_outputs["logitLengths"].append(adjustedLens[iterIdx].cpu().detach().item())
 
             # Competition data days do not correspond with the index
             if partition == "competition":
@@ -86,8 +80,7 @@ def get_model_outputs(days, partition, loadedData, model, device):
     # Logits have different length
     maxLogitLength = max([l.shape[0] for l in model_outputs["logits"]])
     model_outputs["logits"] = [
-        np.pad(l, [[0, maxLogitLength - l.shape[0]], [0, 0]])
-        for l in model_outputs["logits"]
+        np.pad(l, [[0, maxLogitLength - l.shape[0]], [0, 0]]) for l in model_outputs["logits"]
     ]
     model_outputs["logits"] = np.stack(model_outputs["logits"], axis=0)
     model_outputs["logitLengths"] = np.array(model_outputs["logitLengths"])
@@ -96,9 +89,7 @@ def get_model_outputs(days, partition, loadedData, model, device):
 
     # Shift left all phonemes!!!
     logits = model_outputs["logits"]
-    model_outputs["logits"] = np.concatenate(
-        [logits[:, :, 1:], logits[:, :, :1]], axis=-1
-    )
+    model_outputs["logits"] = np.concatenate([logits[:, :, 1:], logits[:, :, :1]], axis=-1)
 
     return model_outputs
 
@@ -143,9 +134,7 @@ if __name__ == "__main__":
 
     baseDir = root_directory = os.environ["DATA"] + "/willett2023"
 
-    datsetPath = (
-        "/data/engs-pnpl/lina4471/willett2023/competitionData/pytorchTFRecords.pkl"
-    )
+    datsetPath = "/data/engs-pnpl/lina4471/willett2023/competitionData/pytorchTFRecords.pkl"
     modelPath = "/home/lina4471/willett2023/competitionData/model/speechBaseline4"
     modelOutPath = "/home/lina4471/willett2023/competitionData/rnn"
 
@@ -156,9 +145,7 @@ if __name__ == "__main__":
 
     args["datasetPath"] = datsetPath
 
-    trainLoaders, testLoaders, loadedData = getDatasetLoaders(
-        args["datasetPath"], args["batchSize"]
-    )
+    trainLoaders, testLoaders, loadedData = getDatasetLoaders(args["datasetPath"], args["batchSize"])
 
     device = "cuda"
 
@@ -216,9 +203,7 @@ if __name__ == "__main__":
     # loads the language model, could take a while and requires ~60 GB of memory
     print("Load LM ...")
     lmDir = baseDir + "/languageModel"
-    ngramDecoder = lmDecoderUtils.build_lm_decoder(
-        lmDir, acoustic_scale=0.8, nbest=1, beam=18  # 1.2
-    )
+    ngramDecoder = lmDecoderUtils.build_lm_decoder(lmDir, acoustic_scale=0.8, nbest=1, beam=18)  # 1.2
     print("LM loaded.")
 
     evaluate(ngramDecoder, model_test_outputs, model_holdOut_outputs, modelOutPath)

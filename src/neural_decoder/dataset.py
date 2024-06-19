@@ -3,7 +3,7 @@ from torch.utils.data import Dataset
 
 
 class SpeechDataset(Dataset):
-    def __init__(self, data, transform=None):
+    def __init__(self, data: list, transform=None):
         self.data = data
         self.transform = transform
         self.n_days = len(data)
