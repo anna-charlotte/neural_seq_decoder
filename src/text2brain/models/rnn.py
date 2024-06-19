@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from text2brain.models.t2b_interface import TextToBrainInterface
+from text2brain.models.model_interface import TextToBrainInterface
 
 
 class RNN(nn.Module):
@@ -107,28 +107,3 @@ def pad_to_match(tensor_a, tensor_b):
         padding_size = tensor_a.size(1) - tensor_b.size(1)
         padded_tensor = F.pad(tensor_b, (0, 0, 0, padding_size, 0, 0))
         return tensor_a, padded_tensor
-
-
-def load_model(model_dir: Path):
-    args_file = Path(model_dir / "args")
-    weights_file = Path(model_dir / "modelWeights")
-
-    assert args_file.exists()
-    assert weights_file.exists()
-
-    with open(args_file, "rb") as handle:
-        args = pickle.load(handle)
-
-    if args["model_class"] == TextToBrainGRU.__name__:
-        model = TextToBrainGRU(
-            input_dim=args["n_input_features"],
-            hidden_dim=args["hidden_dim"],
-            output_dim=args["n_output_features"],
-            n_layers=args["n_layers"],
-        )
-    else:
-        raise ValueError(f"model_class is not valid: {args['model_class']}")
-
-    model.load_weights(file_path=weights_file)
-
-    return model
