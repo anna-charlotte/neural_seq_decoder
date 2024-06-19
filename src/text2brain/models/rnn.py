@@ -4,24 +4,19 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-# class Text2BrainInterface(nn.Module):
-#     def __init__(self):
-#         super(Text2BrainInterface, self).__init__()
-
-#     def forward(self, text):
-#         pass
+from text2brain.models.t2b_interface import TextToBrainInterface
 
 
-class TextToBrainGRU(nn.Module):
+class RNN(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim, n_layers=1):
-        super(TextToBrainGRU, self).__init__()
+        super(RNN, self).__init__()
+        self.input_dim = input_dim
         self.hidden_dim = hidden_dim
-        self.n_layers = n_layers
+        self.output_dim = output_dim
         self.gru_encoder = nn.GRU(input_dim, hidden_dim, n_layers, batch_first=True)
         self.gru_decoder = nn.GRU(hidden_dim, hidden_dim, n_layers, batch_first=True)
         self.fc = nn.Linear(hidden_dim, output_dim)
-
+    
     def forward(self, x):
         # Forward propagate GRU
         lengths = (x != 0).sum(dim=1)
@@ -58,6 +53,47 @@ class TextToBrainGRU(nn.Module):
         return outputs
 
 
+class TextToBrainGRU(TextToBrainInterface):
+    def __init__(self, input_dim, hidden_dim, output_dim, n_layers=1):
+        super(TextToBrainGRU, self).__init__()
+        self.model = RNN(input_dim, hidden_dim, output_dim, n_layers)
+        self.criterion = nn.MSELoss()
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.001)
+        
+    def forward(self, x):
+        return self.model(x)
+
+    def train_one_epoch(
+        self,
+        X: torch.Tensor, 
+        y: torch.Tensor, 
+        X_len: torch.Tensor, 
+        y_len: torch.Tensor, 
+        dayIdx: torch.Tensor,
+    ) -> dict:
+        self.model.train()
+        output = self.model(X)
+        y_pred, y_true = pad_to_match(output, y)
+
+        loss = self.criterion(y_pred, y_true)
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        return {"loss": loss}
+
+    def predict(self, X) -> torch.Tensor:
+        self.model.eval()
+        return self.model(X)
+        
+    def save_weights(self, file_path: Path) -> None:
+        torch.save(self.model.state_dict(), file_path)
+
+    def load_weights(self, file_path: Path) -> None:
+        self.model.load_state_dict(torch.load(file_path))
+
+
+
 def pad_to_match(tensor_a, tensor_b):
     """
     Pads the shorter tensor to match the longer one.
@@ -74,7 +110,13 @@ def pad_to_match(tensor_a, tensor_b):
 
 
 def load_model(model_dir: Path):
-    with open(model_dir / "args", "rb") as handle:
+    args_file = Path(model_dir / "args")
+    weights_file = Path(model_dir / "modelWeights")
+
+    assert args_file.exists()
+    assert weights_file.exists()
+
+    with open(args_file, "rb") as handle:
         args = pickle.load(handle)
 
     if args["model_class"] == TextToBrainGRU.__name__:
@@ -87,5 +129,6 @@ def load_model(model_dir: Path):
     else:
         raise ValueError(f"model_class is not valid: {args['model_class']}")
 
-    model.load_state_dict(torch.load(model_dir / "modelWeights"))
+    model.load_weights(file_path=weights_file)
+    
     return model
