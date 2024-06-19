@@ -1,6 +1,7 @@
 import os
 import pickle
 import time
+from typing import Tuple
 
 import hydra
 import numpy as np
@@ -13,49 +14,56 @@ from .dataset import SpeechDataset
 from .model import GRUDecoder
 
 
+def _padding(batch):
+    X, y, X_lens, y_lens, days = zip(*batch)
+
+    X_padded = pad_sequence(X, batch_first=True, padding_value=0)
+    y_padded = pad_sequence(y, batch_first=True, padding_value=0)
+
+    return (
+        X_padded,
+        y_padded,
+        torch.stack(X_lens),
+        torch.stack(y_lens),
+        torch.stack(days),
+    )
+
+
+def getDataLoader(data: dict, batch_size, shuffle, collate_fn, transform=None) -> DataLoader:
+    ds = SpeechDataset(data, transform=transform)
+    dl = DataLoader(
+        ds,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=0,
+        pin_memory=True,
+        collate_fn=collate_fn,
+    )
+    return dl
+
+
 def getDatasetLoaders(
     datasetName,
     batchSize,
-):
+) -> Tuple[DataLoader, DataLoader, dict]:
     print("In getDatasetLoaders()")
     with open(datasetName, "rb") as handle:
         loadedData = pickle.load(handle)
 
-    def _padding(batch):
-        X, y, X_lens, y_lens, days = zip(*batch)
-
-        X_padded = pad_sequence(X, batch_first=True, padding_value=0)
-        y_padded = pad_sequence(y, batch_first=True, padding_value=0)
-
-        return (
-            X_padded,
-            y_padded,
-            torch.stack(X_lens),
-            torch.stack(y_lens),
-            torch.stack(days),
-        )
-
-    train_ds = SpeechDataset(loadedData["train"], transform=None)
-    test_ds = SpeechDataset(loadedData["test"])
-
-    train_loader = DataLoader(
-        train_ds,
+    train_dl = getDataLoader(
+        data=loadedData["train"],
         batch_size=batchSize,
         shuffle=True,
-        num_workers=0,
-        pin_memory=True,
         collate_fn=_padding,
     )
-    test_loader = DataLoader(
-        test_ds,
+    test_dl = getDataLoader(
+        data=loadedData["test"],
         batch_size=batchSize,
-        shuffle=False,
-        num_workers=0,
-        pin_memory=True,
+        shuffle=True,
         collate_fn=_padding,
     )
 
-    return train_loader, test_loader, loadedData
+    return train_dl, test_dl, loadedData
 
 
 def trainModel(args):
@@ -122,10 +130,7 @@ def trainModel(args):
             X += torch.randn(X.shape, device=device) * args["whiteNoiseSD"]
 
         if args["constantOffsetSD"] > 0:
-            X += (
-                torch.randn([X.shape[0], 1, X.shape[2]], device=device)
-                * args["constantOffsetSD"]
-            )
+            X += torch.randn([X.shape[0], 1, X.shape[2]], device=device) * args["constantOffsetSD"]
 
         # Compute prediction error
         pred = model.forward(X, dayIdx)
@@ -172,9 +177,7 @@ def trainModel(args):
                     loss = torch.sum(loss)
                     allLoss.append(loss.cpu().detach().numpy())
 
-                    adjustedLens = ((X_len - model.kernelLen) / model.strideLen).to(
-                        torch.int32
-                    )
+                    adjustedLens = ((X_len - model.kernelLen) / model.strideLen).to(torch.int32)
                     for iterIdx in range(pred.shape[0]):
                         decodedSeq = torch.argmax(
                             torch.tensor(pred[iterIdx, 0 : adjustedLens[iterIdx], :]),
@@ -184,13 +187,9 @@ def trainModel(args):
                         decodedSeq = decodedSeq.cpu().detach().numpy()
                         decodedSeq = np.array([i for i in decodedSeq if i != 0])
 
-                        trueSeq = np.array(
-                            y[iterIdx][0 : y_len[iterIdx]].cpu().detach()
-                        )
+                        trueSeq = np.array(y[iterIdx][0 : y_len[iterIdx]].cpu().detach())
 
-                        matcher = SequenceMatcher(
-                            a=trueSeq.tolist(), b=decodedSeq.tolist()
-                        )
+                        matcher = SequenceMatcher(a=trueSeq.tolist(), b=decodedSeq.tolist())
                         total_edit_distance += matcher.distance()
                         total_seq_length += len(trueSeq)
 

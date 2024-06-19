@@ -18,7 +18,7 @@ class TextToBrainInterface(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def predict(self, text):
+    def predict(self, x: torch.Tensor, dayIdx):
         raise NotImplementedError
 
     @abstractmethod

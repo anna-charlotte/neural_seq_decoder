@@ -18,7 +18,7 @@ class RNN(nn.Module):
         self.gru_decoder = nn.GRU(hidden_dim, hidden_dim, n_layers, batch_first=True)
         self.fc = nn.Linear(hidden_dim, output_dim)
 
-    def forward(self, x):
+    def forward(self, x, dayIdx):
         # Forward propagate GRU
         lengths = (x != 0).sum(dim=1)
         max_length = lengths.max().item()
@@ -40,9 +40,7 @@ class RNN(nn.Module):
         output_length = 12 * x.size(1)
 
         # Initialize the output tensor
-        outputs = torch.zeros(batch_size, output_length, self.fc.out_features).to(
-            x.device
-        )
+        outputs = torch.zeros(batch_size, output_length, self.fc.out_features).to(x.device)
 
         # Decode the encoded context vector
         for t in range(output_length):
@@ -61,8 +59,8 @@ class TextToBrainGRU(TextToBrainInterface):
         self.criterion = nn.MSELoss()
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.001)
 
-    def forward(self, x):
-        return self.model(x)
+    def forward(self, x: torch.Tensor, dayIdx: torch.Tensor) -> torch.Tensor:
+        return self.model(x, dayIdx)
 
     def train_one_epoch(
         self,
@@ -73,7 +71,7 @@ class TextToBrainGRU(TextToBrainInterface):
         dayIdx: torch.Tensor,
     ) -> dict:
         self.model.train()
-        output = self.model(X)
+        output = self.model(X, dayIdx)
         y_pred, y_true = pad_to_match(output, y)
 
         loss = self.criterion(y_pred, y_true)
@@ -83,9 +81,9 @@ class TextToBrainGRU(TextToBrainInterface):
 
         return {"loss": loss}
 
-    def predict(self, X) -> torch.Tensor:
+    def predict(self, x: torch.Tensor, dayIdx: torch.Tensor) -> torch.Tensor:
         self.model.eval()
-        return self.model(X)
+        return self.model(x, dayIdx)
 
     def save_weights(self, file_path: Path) -> None:
         torch.save(self.model.state_dict(), file_path)
