@@ -29,7 +29,13 @@ def _padding(batch):
     )
 
 
-def getDataLoader(data: dict, batch_size, shuffle, collate_fn, transform=None) -> DataLoader:
+def getDataLoader(
+    data: dict,
+    batch_size: int, 
+    shuffle: bool, 
+    collate_fn: callable, 
+    transform: callable = None
+) -> DataLoader:
     ds = SpeechDataset(data, transform=transform)
     dl = DataLoader(
         ds,
@@ -43,8 +49,8 @@ def getDataLoader(data: dict, batch_size, shuffle, collate_fn, transform=None) -
 
 
 def getDatasetLoaders(
-    datasetName,
-    batchSize,
+    datasetName: str,
+    batchSize: int,
 ) -> Tuple[DataLoader, DataLoader, dict]:
     print("In getDatasetLoaders()")
     with open(datasetName, "rb") as handle:
@@ -79,6 +85,24 @@ def trainModel(args):
         args["datasetPath"],
         args["batchSize"],
     )
+    if "datasetPathSynthetic" in args.keys() and args["datasetPathSynthetic"] != "":
+        with open(datasetName, "rb") as handle:
+            data = pickle.load(handle)
+        
+        syntheticLoader = getDataLoader(
+            data=data, 
+            batch_size= args["batchSize"],
+            shuffle=True,
+            collate_fn=_padding,
+        )
+        assert 0.0 <= args["proportionSynthetic"] <= 1.0, "The value for the proportion of synthetic data is not in the range 0.0 to 1.0."
+        propSynthetic = 1 - args["proportionSynthetic"]
+
+        trainLoader = MergedDataLoader(
+            loader1=trainLoader, 
+            loader2=syntheticLoader, 
+            prop1=propSynthetic
+        )
 
     model = GRUDecoder(
         neural_dim=args["nInputFeatures"],
