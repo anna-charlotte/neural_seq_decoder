@@ -18,13 +18,13 @@ class TextToBrainInterface(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def predict(self, text):
+    def predict(self, x: torch.Tensor, dayIdx):
         raise NotImplementedError
 
     @abstractmethod
-    def save_weights(self, save_to_dir: Path):
+    def save_weights(self, file_path: Path):
         raise NotImplementedError
 
     @abstractmethod
-    def load_weights(self, file_dir: Path) -> None:
+    def load_weights(self, file_path: Path) -> None:
         raise NotImplementedError
