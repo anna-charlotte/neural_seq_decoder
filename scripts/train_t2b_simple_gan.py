@@ -10,67 +10,9 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence, pad_sequence
 
-from neural_decoder.dataset import ExtendedSpeechDataset
-from neural_decoder.neural_decoder_trainer import (
-    _padding_extended,
-    _padding_phoneme,
-    getDataLoader,
-    getDatasetLoaders,
-)
-from text2brain.models.rnn import TextToBrainGRU
-from text2brain.models.utils import load_text2brain_model
+from neural_decoder.dataset import PhonemeDataset
+from neural_decoder.neural_decoder_trainer import getDataLoader
 
-
-class PhonemeDataset:
-    def __init__(
-        self, data: list[Dict], transform=None, kernel_len: int = 32, stride: int = 4, phoneme_cls: int = None
-    ):
-        self.data = data
-        self.transform = transform
-        self.n_days = len(data)
-        self.kernel_len = kernel_len
-        self.stride = stride
-        self.phoneme_cls = phoneme_cls
-        if phoneme_cls is not None:
-            assert phoneme_cls in range(len(PHONE_DEF_SIL))
-
-        self.neural_windows = []
-        self.phonemes = []
-        self.days = []
-        self.logits = []
-
-        for day in range(self.n_days):
-            for trial in range(len(data[day]["sentenceDat"])):
-                signal = data[day]["sentenceDat"][trial]
-                for i in range(0, signal.size(0) - self.kernel_len + 1, self.stride):
-                    logits = data[day]["logits"][trial][int(i / self.stride)]
-                    phoneme = np.argmax(logits)
-                    if self.phoneme_cls is None or self.phoneme_cls == phoneme:
-                        self.phonemes.append(phoneme)
-                        self.logits.append(logits)
-                        window = signal[i : i + self.kernel_len]
-                        self.neural_windows.append(window)
-                        self.days.append(day)
-
-        self.n_trials = len(self.phonemes)
-
-    def __len__(self):
-        return self.n_trials
-
-    def __getitem__(self, idx):
-        neural_window = torch.tensor(self.neural_windows[idx], dtype=torch.float32)
-        phoneme = torch.tensor(self.phonemes[idx], dtype=torch.int32)
-        logits = torch.tensor(self.logits[idx], dtype=torch.float32)
-
-        if self.transform:
-            neural_feats = self.transform(neural_feats)
-
-        return (
-            neural_window,
-            phoneme,
-            logits,
-            torch.tensor(self.days[idx], dtype=torch.int64),
-        )
 
 
 def main(args: dict) -> None:

@@ -173,7 +173,6 @@ class PhonemeDataset(BaseDataset):
         self.phonemes = []
         self.days = []
         self.logits = []
-        self.n_trials = 0
 
         for day in range(self.n_days):
             for trial in range(len(self.data[day]["sentenceDat"])):
@@ -204,6 +203,3 @@ class PhonemeDataset(BaseDataset):
             logits,
             torch.tensor(self.days[idx], dtype=torch.int64),
         )
-
-    def __len__(self):
-        return self.n_trials
