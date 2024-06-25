@@ -1,8 +1,8 @@
 import pickle
 from pathlib import Path
 
+from neural_decoder.dataset import _padding
 from neural_decoder.neural_decoder_trainer import (
-    _padding,
     getDataLoader,
     getDatasetLoaders,
 )
