@@ -6,9 +6,10 @@ import numpy as np
 import torch
 from edit_distance import SequenceMatcher
 from tqdm import tqdm
+from typing import Dict
 
 from neural_decoder.dataset import SpeechDataset
-from neural_decoder.neural_decoder_trainer import getDatasetLoaders, loadModel
+from neural_decoder.neural_decoder_trainer import _padding, _padding_extended, getDataLoader, getDatasetLoaders, loadModel
 
 
 def cer(logits, X_len, y, y_len):
@@ -34,8 +35,8 @@ def cer(logits, X_len, y, y_len):
     return total_edit_distance / total_seq_length
 
 
-def get_model_outputs(days, partition, loadedData, model, device):
-
+def get_model_outputs(loaded_data: list[Dict], model, device):
+    days = range(len(loaded_data))
     model_outputs = {
         "logits": [],
         "logitLengths": [],
@@ -43,33 +44,28 @@ def get_model_outputs(days, partition, loadedData, model, device):
         "cer": [],
     }
 
-    for i, dayIdx in enumerate(tqdm(days)):
+    for dayIdx in tqdm(days):
         # Competition data days do not correspond with the index
-        if partition == "competition":
-            ds = SpeechDataset([loadedData[partition][i]])
-        else:
-            ds = SpeechDataset([loadedData[partition][dayIdx]])
+        ds = SpeechDataset([loaded_data[dayIdx]])
         dl = torch.utils.data.DataLoader(ds, batch_size=1, shuffle=False, num_workers=0)
         for j, (X, y, X_len, y_len, day) in enumerate(dl):
-            X, y, X_len, y_len, dayIdx = (
+            X, y, X_len, y_len, day = (
                 X.to(device),
                 y.to(device),
                 X_len.to(device),
                 y_len.to(device),
                 torch.tensor([dayIdx], dtype=torch.int64).to(device),
             )
-            pred = model.forward(X, dayIdx)
-            adjustedLens = X_len  # ((X_len - model.kernelLen) / model.strideLen).to(torch.int32)
+
+            pred = model.forward(X, day)
+            adjustedLens = ((X_len - model.kernelLen) / model.strideLen).to(torch.int32)
 
             for iterIdx in range(pred.shape[0]):
                 model_outputs["logits"].append(pred[iterIdx].cpu().detach().numpy())
                 model_outputs["logitLengths"].append(adjustedLens[iterIdx].cpu().detach().item())
 
             # Competition data days do not correspond with the index
-            if partition == "competition":
-                transcript = loadedData[partition][i]["transcriptions"][j]
-            else:
-                transcript = loadedData[partition][dayIdx]["transcriptions"][j]
+            transcript = loaded_data[dayIdx]["transcriptions"][j]
 
             model_outputs["transcriptions"].append(transcript)
             model_outputs["cer"].append(cer(pred, adjustedLens, y, y_len))
@@ -91,8 +87,11 @@ def get_model_outputs(days, partition, loadedData, model, device):
     return model_outputs
 
 
-def save_model_output(days, partition, loadedData, model, device, out_file):
-
+# def save_model_output(days, partition, loadedData, model, device, out_file):
+def save_model_output(loaded_data, model, device, out_file):
+    print("In save_model_output() ... ")
+    print(f"out_file = {out_file}")
+    days = range(len(loaded_data))
     data = [
         {
             "sentenceDat": [],
@@ -103,47 +102,40 @@ def save_model_output(days, partition, loadedData, model, device, out_file):
             "transcriptions": [],
             "cer": [],
         }
-        for _ in range(days)
+        for _ in days
     ]
+    
+    for dayIdx in tqdm(days):
 
-
-    for i, dayIdx in enumerate(tqdm(days)):
         # Competition data days do not correspond with the index
-        if partition == "competition":
-            ds = SpeechDataset([loadedData[partition][i]])
-        else:
-            ds = SpeechDataset([loadedData[partition][dayIdx]])
+        ds = SpeechDataset([loaded_data[dayIdx]])
         dl = torch.utils.data.DataLoader(ds, batch_size=1, shuffle=False, num_workers=0)
         for j, (X, y, X_len, y_len, day) in enumerate(dl):
-            X, y, X_len, y_len, dayIdx = (
+
+            X, y, X_len, y_len, day = (
                 X.to(device),
                 y.to(device),
                 X_len.to(device),
                 y_len.to(device),
                 torch.tensor([dayIdx], dtype=torch.int64).to(device),
             )
-            # data[dayIdx]["sentenceDat"].append(neural_signals[0])
-            data[dayIdx]["phonemes"].append(y[0])
-            data[dayIdx]["phoneLens"].append(len(y_len[0]))
+            data[dayIdx]["sentenceDat"].append(X[0].to('cpu'))
+            data[dayIdx]["phonemes"].append(y[0].to('cpu'))
+            data[dayIdx]["phoneLens"].append(y_len[0].item())
 
-            pred = model.forward(X, dayIdx)
-            adjustedLens = X_len  # ((X_len - model.kernelLen) / model.strideLen).to(torch.int32)
+            pred = model.forward(X, day)
+            adjustedLens = X_len.to('cpu')  # ((X_len - model.kernelLen) / model.strideLen).to(torch.int32)
 
+            pred = pred.to('cpu')
             for iterIdx in range(pred.shape[0]):
                 data[dayIdx]["logits"].append(pred[iterIdx].cpu().detach().numpy())
                 data[dayIdx]["logitLengths"].append(adjustedLens[iterIdx].cpu().detach().item())
 
             # Competition data days do not correspond with the index
-            if partition == "competition":
-                transcript = loadedData[partition][i]["transcriptions"][j]
-            else:
-                transcript = loadedData[partition][dayIdx]["transcriptions"][j]
+            transcript = loaded_data[dayIdx]["transcriptions"][j]
 
             data[dayIdx]["transcriptions"].append(transcript)
             data[dayIdx]["cer"].append(cer(pred, adjustedLens, y, y_len))
-
-        if i == 5:
-            break
 
     # Logits have different length
     maxLogitLength = max([l.shape[0] for l in data[dayIdx]["logits"]])
@@ -159,14 +151,10 @@ def save_model_output(days, partition, loadedData, model, device, out_file):
     logits = data[dayIdx]["logits"]
     data[dayIdx]["logits"] = np.concatenate([logits[:, :, 1:], logits[:, :, :1]], axis=-1)
 
-
     with open(out_file, "wb") as handle:
-        print(f"data = {data}")
+        print(f"len(data) = {len(data)}")
         print(f"\nStore data to: {out_file}")
         pickle.dump(data, handle)
-
-
-
 
 
 def inputInfo(input):
@@ -222,6 +210,13 @@ if __name__ == "__main__":
 
     trainLoaders, testLoaders, loadedData = getDatasetLoaders(args["datasetPath"], args["batchSize"])
 
+    train_dl_1 = getDataLoader(
+        data=loadedData["train"],
+        batch_size=1,
+        shuffle=False,
+        collate_fn=_padding,
+    )
+
     device = "cuda"
 
     model = loadModel(modelPath, device=device)
@@ -229,73 +224,114 @@ if __name__ == "__main__":
     model.eval()
     print(f"Model loaded.")
 
+    file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
+
     save_model_output(
-        days=range(4, 19),
-        partition="train",
-        loadedData=loadedData,
+        loaded_data=loadedData["train"],
         model=model,
         device=device,
-        out_file="/data/engs-pnpl/lina4471/willett2023/competitionData/testtest.pkl"
+        out_file=file
     )
 
-    # model_train_outputs = get_model_outputs(
-    #     days=range(4, 19),
-    #     partition="train",
-    #     loadedData=loadedData,
-    #     model=model,
-    #     device=device,
-    # )
-    #
+    # load data againmjust to test that it can be loaded
+    print(f"\nLoad stored generated data from: {file}")
+    with open(file, "rb") as handle:
+        loaded_data = pickle.load(handle)
+
+    train_dl_2 = getDataLoader(
+        data=loaded_data,
+        batch_size=1,
+        shuffle=False,
+        collate_fn=_padding_extended,
+        dataset_cls=ExtendedSpeechDataset,
+    )
+    print(f"train_dl_2 = {train_dl_2}")
+    model.eval()
+    for i, batch in enumerate(train_dl_2):
+        X, y, y_len, X_len, dayIdx, logits, logits_len = batch
+        X, y, y_len, X_len, dayIdx, logits, logits_len = (
+            X.to(device),
+            y.to(device),
+            X_len.to(device),
+            y_len.to(device),
+            torch.tensor([dayIdx], dtype=torch.int64).to(device),
+            logits.to(device),
+            logits_len.to(device),
+        )
+        y_pred = model(X, dayIdx)
+        print(f"\nX.size() = {X.size()}")
+        print(f"y.size() = {y.size()}")
+        print(f"X_len.size() = {X_len.size()}")
+        print(f"y_len.size() = {y_len.size()}")
+        print(f"dayIdx.size() = {dayIdx.size()}")
+        print(f"logits.size() = {logits.size()}")
+        print(f"y_pred.size() = {y_pred.size()}")
+        
+
+    model_train_outputs = get_model_outputs(
+        loaded_data=loadedData["train"],
+        model=model,
+        device=device,
+    )
+
+
+
+
+
+
+
+
+    
     # model_test_outputs = get_model_outputs(
-    #     days=range(4, 19),
-    #     partition="test",
-    #     loadedData=loadedData,
+    #     # days=range(4, 19),
+    #     # partition="test",
+    #     loaded_data=loadedData["test"],
     #     model=model,
     #     device=device,
     # )
     # print("Test raw CER: ", np.mean(model_test_outputs["cer"]), flush=True)
-    #
-    # holdOutDays = [4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 18, 19, 20]
+    
+    # # holdOutDays = [4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 18, 19, 20]
     # model_holdOut_outputs = get_model_outputs(
-    #     days=holdOutDays,
-    #     partition="competition",
-    #     loadedData=loadedData,
+    #     # days=holdOutDays,
+    #     # partition="competition",
+    #     loaded_data=loadedData["competition"],
     #     model=model,
     #     device=device,
     # )
-    #
+    
     # test_out_path = modelOutPath + "_test.pkl"
     # holdout_out_path = modelOutPath + "_holdOut.pkl"
-    #
+    
     # with open(test_out_path, "wb") as f:
     #     pickle.dump(model_test_outputs, f)
-    #
+    
     # print(test_out_path + " structure:", flush=True)
     # inputInfo(model_test_outputs)
-    #
+    
     # with open(holdout_out_path, "wb") as f:
     #     pickle.dump(model_holdOut_outputs, f)
-    #
+    
     # print(holdout_out_path + " structure:", flush=True)
     # inputInfo(model_holdOut_outputs)
-    #
+    
     # # load the rnn outputs pkl for the LM
     # with open(test_out_path, "rb") as handle:
     #     model_test_outputs = pickle.load(handle)
-    #
+    
     # print(test_out_path + " structure:", flush=True)
     # inputInfo(model_test_outputs)
-    #
+    
     # with open(holdout_out_path, "rb") as handle:
     #     model_holdOut_outputs = pickle.load(handle)
-    #
+    
     # print(holdout_out_path + " structure:", flush=True)
     # inputInfo(model_holdOut_outputs)
-    #
+    
     # # loads the language model, could take a while and requires ~60 GB of memory
     # print("Load LM ...")
     # lmDir = baseDir + "/languageModel"
     # ngramDecoder = lmDecoderUtils.build_lm_decoder(lmDir, acoustic_scale=0.8, nbest=1, beam=18)  # 1.2
     # print("LM loaded.")
-    #
+    
     # evaluate(ngramDecoder, model_test_outputs, model_holdOut_outputs, modelOutPath)
