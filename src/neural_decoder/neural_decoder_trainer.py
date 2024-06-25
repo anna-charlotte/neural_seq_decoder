@@ -9,7 +9,7 @@ import torch
 from edit_distance import SequenceMatcher
 from torch.utils.data import DataLoader
 
-from .dataset import ExtendedSpeechDataset, SpeechDataset, _padding, _padding_extended
+from .dataset import SpeechDataset, _padding
 from .model import GRUDecoder
 
 
@@ -46,9 +46,11 @@ def getDatasetLoaders(
     padding_fnc = None
     if dataset_cls == SpeechDataset:
         padding_fnc = _padding
-    elif dataset_cls == ExtendedSpeechDataset:
-        padding_fnc = _padding_extended
-
+    elif dataset_cls == PhonemeDataset:
+        padding_fnc = None
+    else:
+        raise ValueError(f"Given dataset class is not valid: {dataset_cls}")
+        
     train_dl = getDataLoader(
         data=loadedData["train"],
         batch_size=batchSize,
