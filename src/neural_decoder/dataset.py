@@ -23,29 +23,6 @@ def _padding(batch):
     )
 
 
-def _padding_extended(batch):
-
-    X, y, X_lens, y_lens, days, logits, logits_lens = zip(*batch)
-    for logit in logits:
-        print(f"logit.size() = {logit.size()}")
-
-    X_padded = pad_sequence(X, batch_first=True, padding_value=0)
-    y_padded = pad_sequence(y, batch_first=True, padding_value=0)
-    logits_padded = pad_sequence(logits, batch_first=True, padding_value=0)
-    for logit_padded in logits_padded:
-        print(f"logit_padded.size() = {logit_padded.size()}")
-
-    return (
-        X_padded,
-        y_padded,
-        torch.stack(X_lens),
-        torch.stack(y_lens),
-        torch.stack(days),
-        logits_padded,
-        torch.stack(logits_lens),
-    )
-
-
 class BaseDataset(Dataset, ABC):
     def __init__(self, data: list[Dict], transform=None):
         self.data = data
@@ -105,51 +82,6 @@ class SpeechDataset(BaseDataset):
             torch.tensor(self.neural_time_bins[idx], dtype=torch.int32),
             torch.tensor(self.phone_seq_lens[idx], dtype=torch.int32),
             torch.tensor(self.days[idx], dtype=torch.int64),
-        )
-
-    def __len__(self):
-        return self.n_trials
-
-
-class ExtendedSpeechDataset(BaseDataset):
-    def prepare_data(self):
-        self.n_trials = sum([len(d["sentenceDat"]) for d in self.data])
-        self.neural_feats = []
-        self.phone_seqs = []
-        self.neural_time_bins = []
-        self.phone_seq_lens = []
-        self.days = []
-        self.logits = []
-        self.logit_lengths = []
-
-        for day in range(self.n_days):
-            for trial in range(len(self.data[day]["sentenceDat"])):
-                self.neural_feats.append(self.data[day]["sentenceDat"][trial])
-                self.phone_seqs.append(self.data[day]["phonemes"][trial])
-                self.neural_time_bins.append(self.data[day]["sentenceDat"][trial].shape[0])
-                self.phone_seq_lens.append(self.data[day]["phoneLens"][trial])
-                self.days.append(day)
-
-                self.logits.append(self.data[day]["logits"][trial])
-                self.logit_lengths.append(self.data[day]["logitLengths"][trial])
-
-    def __getitem__(self, idx):
-        neural_feats = torch.tensor(self.neural_feats[idx], dtype=torch.float32)
-        phone_seqs = torch.tensor(self.phone_seqs[idx], dtype=torch.int32)
-        logits = torch.tensor(self.logits[idx], dtype=torch.float32)
-        logit_lengths = torch.tensor(self.logit_lengths[idx], dtype=torch.int32)
-
-        if self.transform:
-            neural_feats = self.transform(neural_feats)
-
-        return (
-            neural_feats,
-            phone_seqs,
-            torch.tensor(self.neural_time_bins[idx], dtype=torch.int32),
-            torch.tensor(self.phone_seq_lens[idx], dtype=torch.int32),
-            torch.tensor(self.days[idx], dtype=torch.int64),
-            logits,
-            logit_lengths,
         )
 
     def __len__(self):
