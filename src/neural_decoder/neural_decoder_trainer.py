@@ -7,50 +7,10 @@ import hydra
 import numpy as np
 import torch
 from edit_distance import SequenceMatcher
-from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 
-from .dataset import ExtendedSpeechDataset, SpeechDataset
+from .dataset import ExtendedSpeechDataset, SpeechDataset, _padding, _padding_extended
 from .model import GRUDecoder
-
-
-def _padding(batch):
-
-    X, y, X_lens, y_lens, days = zip(*batch)
-
-    X_padded = pad_sequence(X, batch_first=True, padding_value=0)
-    y_padded = pad_sequence(y, batch_first=True, padding_value=0)
-
-    return (
-        X_padded,
-        y_padded,
-        torch.stack(X_lens),
-        torch.stack(y_lens),
-        torch.stack(days),
-    )
-
-
-def _padding_extended(batch):
-
-    X, y, X_lens, y_lens, days, logits, logits_lens = zip(*batch)
-    for logit in logits:
-        print(f"logit.size() = {logit.size()}")
-
-    X_padded = pad_sequence(X, batch_first=True, padding_value=0)
-    y_padded = pad_sequence(y, batch_first=True, padding_value=0)
-    logits_padded = pad_sequence(logits, batch_first=True, padding_value=0)
-    for logit_padded in logits_padded:
-        print(f"logit_padded.size() = {logit_padded.size()}")
-
-    return (
-        X_padded,
-        y_padded,
-        torch.stack(X_lens),
-        torch.stack(y_lens),
-        torch.stack(days),
-        logits_padded,
-        torch.stack(logits_lens),
-    )
 
 
 def getDataLoader(
@@ -61,11 +21,8 @@ def getDataLoader(
     transform: callable = None,
     dataset_cls: Type[Any] = SpeechDataset,
 ) -> DataLoader:
-    # if extended_speech_dataset:
-    #     ds = ExtendedSpeechDataset(data, transform=transform)
-    # else:
-    ds = dataset_cls(data, transform=transform)
 
+    ds = dataset_cls(data, transform=transform)
     dl = DataLoader(
         ds, batch_size=batch_size, shuffle=shuffle, num_workers=0, pin_memory=True, collate_fn=collate_fn,
     )
@@ -79,23 +36,24 @@ def getDatasetLoaders(
     with open(datasetName, "rb") as handle:
         loadedData = pickle.load(handle)
 
+    padding_fnc = None
     if dataset_cls == SpeechDataset:
-        _padding_fnc = _padding
+        padding_fnc = _padding
     elif dataset_cls == ExtendedSpeechDataset:
-        _padding_fnc = _padding_extended
+        padding_fnc = _padding_extended
 
     train_dl = getDataLoader(
         data=loadedData["train"],
         batch_size=batchSize,
         shuffle=True,
-        collate_fn=_padding_fnc,
+        collate_fn=padding_fnc,
         dataset_cls=dataset_cls,
     )
     test_dl = getDataLoader(
         data=loadedData["test"],
         batch_size=batchSize,
         shuffle=True,
-        collate_fn=_padding_fnc,
+        collate_fn=padding_fnc,
         dataset_cls=dataset_cls,
     )
 
