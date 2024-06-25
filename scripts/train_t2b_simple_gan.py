@@ -14,7 +14,6 @@ from neural_decoder.dataset import PhonemeDataset
 from neural_decoder.neural_decoder_trainer import getDataLoader
 
 
-
 def main(args: dict) -> None:
 
     torch.manual_seed(args["seed"])
@@ -27,13 +26,14 @@ def main(args: dict) -> None:
     with open(train_file, "rb") as handle:
         train_data = pickle.load(handle)
 
-    train_loader = getDataLoader(
+    train_dl = getDataLoader(
         data=train_data, batch_size=batch_size, shuffle=True, collate_fn=None, dataset_cls=PhonemeDataset
     )
     phonemes = []
 
-    for i, batch in enumerate(train_loader):
+    for i, batch in enumerate(train_dl):
         neural_window, phoneme, logits, dayIdx = batch
+        print(f"neural_window.size() = {neural_window.size()}")
         neural_window, phoneme, logits, dayIdx = (
             neural_window.to(device),
             phoneme.to(device),
@@ -45,7 +45,7 @@ def main(args: dict) -> None:
     with open(test_file, "rb") as handle:
         test_data = pickle.load(handle)
 
-    test_loader = getDataLoader(
+    test_dl = getDataLoader(
         data=test_data, batch_size=batch_size, shuffle=False, collate_fn=None, dataset_cls=PhonemeDataset
     )
 
@@ -62,7 +62,7 @@ if __name__ == "__main__":
         "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
     )
     # args["output_dir"] = "/data/engs-pnpl/lina4471/synthetic_data_willett2023/simple_rnn"
-    args["batch_size"] = 32
+    args["batch_size"] = 64
     args["n_batches"] = 10000
     args["n_input_features"] = 41
     args["n_output_features"] = 256
