@@ -8,10 +8,8 @@ import torch
 from edit_distance import SequenceMatcher
 from tqdm import tqdm
 
-from neural_decoder.dataset import SpeechDataset
+from neural_decoder.dataset import SpeechDataset, _padding, _padding_extended
 from neural_decoder.neural_decoder_trainer import (
-    _padding,
-    _padding_extended,
     getDataLoader,
     getDatasetLoaders,
     loadModel,
@@ -193,6 +191,8 @@ def evaluate(ngramDecoder, model_test_outputs, model_holdOut_outputs, outputFile
 
 
 if __name__ == "__main__":
+    save_output = True
+    eval_model = True
 
     baseDir = root_directory = os.environ["DATA"] + "/willett2023"
 
@@ -209,7 +209,7 @@ if __name__ == "__main__":
 
     trainLoaders, testLoaders, loadedData = getDatasetLoaders(args["datasetPath"], args["batchSize"])
 
-    train_dl_1 = getDataLoader(data=loadedData["train"], batch_size=1, shuffle=False, collate_fn=_padding,)
+    # train_dl_1 = getDataLoader(data=loadedData["train"], batch_size=1, shuffle=False, collate_fn=_padding,)
 
     device = "cuda"
 
@@ -218,96 +218,59 @@ if __name__ == "__main__":
     model.eval()
     print(f"Model loaded.")
 
-    file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
+    if save_output:
+        file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
+        save_model_output(loaded_data=loadedData["train"], model=model, device=device, out_file=file)
 
-    save_model_output(loaded_data=loadedData["train"], model=model, device=device, out_file=file)
+        file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
+        save_model_output(loaded_data=loadedData["test"], model=model, device=device, out_file=file)
 
-    # load data againmjust to test that it can be loaded
-    print(f"\nLoad stored generated data from: {file}")
-    with open(file, "rb") as handle:
-        loaded_data = pickle.load(handle)
-
-    train_dl_2 = getDataLoader(
-        data=loaded_data,
-        batch_size=1,
-        shuffle=False,
-        collate_fn=_padding_extended,
-        dataset_cls=ExtendedSpeechDataset,
-    )
-    print(f"train_dl_2 = {train_dl_2}")
-    model.eval()
-    for i, batch in enumerate(train_dl_2):
-        X, y, y_len, X_len, dayIdx, logits, logits_len = batch
-        X, y, y_len, X_len, dayIdx, logits, logits_len = (
-            X.to(device),
-            y.to(device),
-            X_len.to(device),
-            y_len.to(device),
-            torch.tensor([dayIdx], dtype=torch.int64).to(device),
-            logits.to(device),
-            logits_len.to(device),
+    if eval_model:
+        model_test_outputs = get_model_outputs(
+            loaded_data=loadedData["test"],
+            model=model,
+            device=device,
         )
-        y_pred = model(X, dayIdx)
-        print(f"\nX.size() = {X.size()}")
-        print(f"y.size() = {y.size()}")
-        print(f"X_len.size() = {X_len.size()}")
-        print(f"y_len.size() = {y_len.size()}")
-        print(f"dayIdx.size() = {dayIdx.size()}")
-        print(f"logits.size() = {logits.size()}")
-        print(f"y_pred.size() = {y_pred.size()}")
+        print("Test raw CER: ", np.mean(model_test_outputs["cer"]), flush=True)
 
-    model_train_outputs = get_model_outputs(loaded_data=loadedData["train"], model=model, device=device,)
+        model_holdOut_outputs = get_model_outputs(
+            loaded_data=loadedData["competition"],
+            model=model,
+            device=device,
+        )
 
-    # model_test_outputs = get_model_outputs(
-    #     # days=range(4, 19),
-    #     # partition="test",
-    #     loaded_data=loadedData["test"],
-    #     model=model,
-    #     device=device,
-    # )
-    # print("Test raw CER: ", np.mean(model_test_outputs["cer"]), flush=True)
+        test_out_path = modelOutPath + "_test.pkl"
+        holdout_out_path = modelOutPath + "_holdOut.pkl"
 
-    # # holdOutDays = [4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 18, 19, 20]
-    # model_holdOut_outputs = get_model_outputs(
-    #     # days=holdOutDays,
-    #     # partition="competition",
-    #     loaded_data=loadedData["competition"],
-    #     model=model,
-    #     device=device,
-    # )
+        with open(test_out_path, "wb") as f:
+            pickle.dump(model_test_outputs, f)
 
-    # test_out_path = modelOutPath + "_test.pkl"
-    # holdout_out_path = modelOutPath + "_holdOut.pkl"
+        print(test_out_path + " structure:", flush=True)
+        inputInfo(model_test_outputs)
 
-    # with open(test_out_path, "wb") as f:
-    #     pickle.dump(model_test_outputs, f)
+        with open(holdout_out_path, "wb") as f:
+            pickle.dump(model_holdOut_outputs, f)
 
-    # print(test_out_path + " structure:", flush=True)
-    # inputInfo(model_test_outputs)
+        print(holdout_out_path + " structure:", flush=True)
+        inputInfo(model_holdOut_outputs)
 
-    # with open(holdout_out_path, "wb") as f:
-    #     pickle.dump(model_holdOut_outputs, f)
+        # load the rnn outputs pkl for the LM
+        with open(test_out_path, "rb") as handle:
+            model_test_outputs = pickle.load(handle)
 
-    # print(holdout_out_path + " structure:", flush=True)
-    # inputInfo(model_holdOut_outputs)
+        print(test_out_path + " structure:", flush=True)
+        inputInfo(model_test_outputs)
 
-    # # load the rnn outputs pkl for the LM
-    # with open(test_out_path, "rb") as handle:
-    #     model_test_outputs = pickle.load(handle)
+        with open(holdout_out_path, "rb") as handle:
+            model_holdOut_outputs = pickle.load(handle)
 
-    # print(test_out_path + " structure:", flush=True)
-    # inputInfo(model_test_outputs)
+        print(holdout_out_path + " structure:", flush=True)
+        inputInfo(model_holdOut_outputs)
 
-    # with open(holdout_out_path, "rb") as handle:
-    #     model_holdOut_outputs = pickle.load(handle)
+        # loads the language model, could take a while and requires ~60 GB of memory
+        print("Load LM ...")
+        lmDir = baseDir + "/languageModel"
+        ngramDecoder = lmDecoderUtils.build_lm_decoder(lmDir, acoustic_scale=0.8, nbest=1, beam=18)  # 1.2
+        print("LM loaded.")
 
-    # print(holdout_out_path + " structure:", flush=True)
-    # inputInfo(model_holdOut_outputs)
-
-    # # loads the language model, could take a while and requires ~60 GB of memory
-    # print("Load LM ...")
-    # lmDir = baseDir + "/languageModel"
-    # ngramDecoder = lmDecoderUtils.build_lm_decoder(lmDir, acoustic_scale=0.8, nbest=1, beam=18)  # 1.2
-    # print("LM loaded.")
-
-    # evaluate(ngramDecoder, model_test_outputs, model_holdOut_outputs, modelOutPath)
+        evaluate(ngramDecoder, model_test_outputs, model_holdOut_outputs, modelOutPath)
