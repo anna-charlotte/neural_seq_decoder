@@ -23,7 +23,8 @@ def cer(logits, X_len, y, y_len):
     adjustedLens = X_len
     for iterIdx in range(logits.shape[0]):
         decodedSeq = torch.argmax(
-            torch.tensor(logits[iterIdx, 0 : adjustedLens[iterIdx], :]), dim=-1,
+            torch.tensor(logits[iterIdx, 0 : adjustedLens[iterIdx], :]),
+            dim=-1,
         )  # [num_seq,]
         decodedSeq = torch.unique_consecutive(decodedSeq, dim=-1)
         decodedSeq = decodedSeq.cpu().detach().numpy()
@@ -90,7 +91,6 @@ def get_model_outputs(loaded_data: list[Dict], model, device):
     return model_outputs
 
 
-# def save_model_output(days, partition, loadedData, model, device, out_file):
 def save_model_output(loaded_data, model, device, out_file):
     print("In save_model_output() ... ")
     print(f"out_file = {out_file}")
@@ -172,14 +172,20 @@ def evaluate(ngramDecoder, model_test_outputs, model_holdOut_outputs, outputFile
 
     print("\nDecoding Test...\n", flush=True)
     decoder_out_test = lmDecoderUtils.cer_with_lm_decoder(
-        ngramDecoder, model_test_outputs, outputType="speech_sil", blankPenalty=np.log(2),
+        ngramDecoder,
+        model_test_outputs,
+        outputType="speech_sil",
+        blankPenalty=np.log(2),
     )
 
     print(f"\n-------- WER: {decoder_out_test['wer']:.3f} --------\n", flush=True)
 
     print("\nDecoding HoldOut...\n", flush=True)
     decoder_out_holdOut = lmDecoderUtils.cer_with_lm_decoder(
-        ngramDecoder, model_holdOut_outputs, outputType="speech_sil", blankPenalty=np.log(2),
+        ngramDecoder,
+        model_holdOut_outputs,
+        outputType="speech_sil",
+        blankPenalty=np.log(2),
     )
 
     filename = f"{outputFilePath}_cer_{decoder_out_test['cer']:.3f}_wer_{decoder_out_test['wer']:.3f}.txt"
@@ -208,8 +214,6 @@ if __name__ == "__main__":
     args["datasetPath"] = datsetPath
 
     trainLoaders, testLoaders, loadedData = getDatasetLoaders(args["datasetPath"], args["batchSize"])
-
-    # train_dl_1 = getDataLoader(data=loadedData["train"], batch_size=1, shuffle=False, collate_fn=_padding,)
 
     device = "cuda"
 
