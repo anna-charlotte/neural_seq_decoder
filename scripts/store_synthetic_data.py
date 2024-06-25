@@ -16,8 +16,8 @@ if __name__ == "__main__":
 
     # load dataloaders
     train_dl, _, _ = get_dataset_loaders(
-        datasetName=input_data_file,
-        batchSize=1,
+        dataset_name=input_data_file,
+        batch_size=1,
     )
 
     file_name = "pytorchTFRecords_synthetic.pkl"

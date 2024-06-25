@@ -42,10 +42,10 @@ PHONE_DEF = [
 PHONE_DEF_SIL = PHONE_DEF + ["SIL"]
 
 
-def phoneToId(p: str):
+def phone_to_id(p: str):
     return PHONE_DEF_SIL.index(p)
 
 
-def idToPhone(idx: int):
+def id_to_phone(idx: int):
     assert idx in range(0, len(PHONE_DEF_SIL))
     return PHONE_DEF_SIL[idx]

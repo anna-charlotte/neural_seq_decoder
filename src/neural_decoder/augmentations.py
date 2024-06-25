@@ -7,21 +7,21 @@ from torch.nn import functional as F
 
 
 class WhiteNoise(nn.Module):
-    def __init__(self, std=0.1):
+    def __init__(self, std=0.1) -> None:
         super().__init__()
         self.std = std
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         noise = torch.randn_like(x) * self.std
         return x + noise
 
 
 class MeanDriftNoise(nn.Module):
-    def __init__(self, std=0.1):
+    def __init__(self, std=0.1) -> None:
         super().__init__()
         self.std = std
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         _, C = x.shape
         noise = torch.randn(1, C) * self.std
         return x + noise
@@ -41,7 +41,7 @@ class GaussianSmoothing(nn.Module):
             Default value is 2 (spatial).
     """
 
-    def __init__(self, channels, kernel_size, sigma, dim=2):
+    def __init__(self, channels, kernel_size, sigma, dim: int = 2) -> None:
         super(GaussianSmoothing, self).__init__()
         if isinstance(kernel_size, numbers.Number):
             kernel_size = [kernel_size] * dim
@@ -75,7 +75,7 @@ class GaussianSmoothing(nn.Module):
         else:
             raise RuntimeError("Only 1, 2 and 3 dimensions are supported. Received {}.".format(dim))
 
-    def forward(self, input):
+    def forward(self, input: torch.Tensor) -> tyorch.Tensor:
         """
         Apply gaussian filter to input.
         Arguments:

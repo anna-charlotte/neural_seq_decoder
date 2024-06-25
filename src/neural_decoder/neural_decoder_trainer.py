@@ -35,13 +35,13 @@ def get_data_loader(
 
 
 def get_dataset_loaders(
-    datasetName: str,
-    batchSize: int,
+    dataset_name: str,
+    batch_size: int,
     dataset_cls: Type[Any] = SpeechDataset,
 ) -> Tuple[DataLoader, DataLoader, dict]:
     print("In get_dataset_loaders()")
-    with open(datasetName, "rb") as handle:
-        loadedData = pickle.load(handle)
+    with open(dataset_name, "rb") as handle:
+        loaded_data = pickle.load(handle)
 
     padding_fnc = None
     if dataset_cls == SpeechDataset:
@@ -52,21 +52,21 @@ def get_dataset_loaders(
         raise ValueError(f"Given dataset class is not valid: {dataset_cls}")
         
     train_dl = get_data_loader(
-        data=loadedData["train"],
-        batch_size=batchSize,
+        data=loaded_data["train"],
+        batch_size=batch_size,
         shuffle=True,
         collate_fn=padding_fnc,
         dataset_cls=dataset_cls,
     )
     test_dl = get_data_loader(
-        data=loadedData["test"],
-        batch_size=batchSize,
+        data=loaded_data["test"],
+        batch_size=batch_size,
         shuffle=True,
         collate_fn=padding_fnc,
         dataset_cls=dataset_cls,
     )
 
-    return train_dl, test_dl, loadedData
+    return train_dl, test_dl, loaded_data
 
 
 def trainModel(args):
@@ -78,15 +78,16 @@ def trainModel(args):
     with open(args["outputDir"] + "/args", "wb") as file:
         pickle.dump(args, file)
 
-    trainLoader, testLoader, loadedData = get_dataset_loaders(
+    train_loader, test_loader, loaded_data = get_dataset_loaders(
         args["datasetPath"],
         args["batchSize"],
     )
     if "datasetPathSynthetic" in args.keys() and args["datasetPathSynthetic"] != "":
-        with open(datasetName, "rb") as handle:
+        dataset_name = args["datasetPathSynthetic"]
+        with open(dataset_name, "rb") as handle:
             data = pickle.load(handle)
 
-        syntheticLoader = get_data_loader(
+        synthetic_loader = get_data_loader(
             data=data,
             batch_size=args["batchSize"],
             shuffle=True,
@@ -95,16 +96,16 @@ def trainModel(args):
         assert (
             0.0 <= args["proportionSynthetic"] <= 1.0
         ), "The value for the proportion of synthetic data is not in the range 0.0 to 1.0."
-        propSynthetic = 1 - args["proportionSynthetic"]
+        prop_synthetic = 1 - args["proportionSynthetic"]
 
-        trainLoader = MergedDataLoader(loader1=trainLoader, loader2=syntheticLoader, prop1=propSynthetic)
+        train_loader = MergedDataLoader(loader1=train_loader, loader2=synthetic_loader, prop1=prop_synthetic)
 
     model = GRUDecoder(
         neural_dim=args["nInputFeatures"],
         n_classes=args["nClasses"],
         hidden_dim=args["nUnits"],
         layer_dim=args["nLayers"],
-        nDays=len(loadedData["train"]),
+        nDays=len(loaded_data["train"]),
         dropout=args["dropout"],
         device=device,
         strideLen=args["strideLen"],
@@ -129,13 +130,13 @@ def trainModel(args):
     )
 
     # --train--
-    testLoss = []
-    testCER = []
-    startTime = time.time()
+    test_loss = []
+    test_cer = []
+    start_time = time.time()
     for batch in range(args["nBatch"]):
         model.train()
 
-        X, y, X_len, y_len, dayIdx = next(iter(trainLoader))
+        X, y, X_len, y_len, dayIdx = next(iter(train_loader))
         X, y, X_len, y_len, dayIdx = (
             X.to(device),
             y.to(device),
@@ -168,16 +169,16 @@ def trainModel(args):
         optimizer.step()
         scheduler.step()
 
-        # print(endTime - startTime)
+        # print(end_time - start_time)
 
         # Eval
         if batch % 100 == 0:
             with torch.no_grad():
                 model.eval()
-                allLoss = []
+                all_loss = []
                 total_edit_distance = 0
                 total_seq_length = 0
-                for X, y, X_len, y_len, testDayIdx in testLoader:
+                for X, y, X_len, y_len, testDayIdx in test_loader:
                     X, y, X_len, y_len, testDayIdx = (
                         X.to(device),
                         y.to(device),
@@ -194,44 +195,44 @@ def trainModel(args):
                         y_len,
                     )
                     loss = torch.sum(loss)
-                    allLoss.append(loss.cpu().detach().numpy())
+                    all_loss.append(loss.cpu().detach().numpy())
 
-                    adjustedLens = ((X_len - model.kernelLen) / model.strideLen).to(torch.int32)
+                    adjusted_lens = ((X_len - model.kernelLen) / model.strideLen).to(torch.int32)
                     for iterIdx in range(pred.shape[0]):
-                        decodedSeq = torch.argmax(
-                            torch.tensor(pred[iterIdx, 0 : adjustedLens[iterIdx], :]),
+                        decoded_seq = torch.argmax(
+                            torch.tensor(pred[iterIdx, 0 : adjusted_lens[iterIdx], :]),
                             dim=-1,
                         )  # [num_seq,]
-                        decodedSeq = torch.unique_consecutive(decodedSeq, dim=-1)
-                        decodedSeq = decodedSeq.cpu().detach().numpy()
-                        decodedSeq = np.array([i for i in decodedSeq if i != 0])
+                        decoded_seq = torch.unique_consecutive(decoded_seq, dim=-1)
+                        decoded_seq = decoded_seq.cpu().detach().numpy()
+                        decoded_seq = np.array([i for i in decoded_seq if i != 0])
 
-                        trueSeq = np.array(y[iterIdx][0 : y_len[iterIdx]].cpu().detach())
+                        true_seq = np.array(y[iterIdx][0 : y_len[iterIdx]].cpu().detach())
 
-                        matcher = SequenceMatcher(a=trueSeq.tolist(), b=decodedSeq.tolist())
+                        matcher = SequenceMatcher(a=true_seq.tolist(), b=decoded_seq.tolist())
                         total_edit_distance += matcher.distance()
-                        total_seq_length += len(trueSeq)
+                        total_seq_length += len(true_seq)
 
-                avgDayLoss = np.sum(allLoss) / len(testLoader)
+                avg_day_loss = np.sum(all_loss) / len(test_loader)
                 cer = total_edit_distance / total_seq_length
 
-                endTime = time.time()
+                end_time = time.time()
                 print(
-                    f"batch {batch}, ctc loss: {avgDayLoss:>7f}, cer: {cer:>7f}, time/batch: {(endTime - startTime)/100:>7.3f}"
+                    f"batch {batch}, ctc loss: {avg_day_loss:>7f}, cer: {cer:>7f}, time/batch: {(end_time - start_time)/100:>7.3f}"
                 )
-                startTime = time.time()
+                start_time = time.time()
 
-            if len(testCER) > 0 and cer < np.min(testCER):
+            if len(test_cer) > 0 and cer < np.min(test_cer):
                 torch.save(model.state_dict(), args["outputDir"] + "/modelWeights")
-            testLoss.append(avgDayLoss)
-            testCER.append(cer)
+            test_loss.append(avg_day_loss)
+            test_cer.append(cer)
 
-            tStats = {}
-            tStats["testLoss"] = np.array(testLoss)
-            tStats["testCER"] = np.array(testCER)
+            t_stats = {}
+            t_stats["test_loss"] = np.array(test_loss)
+            t_stats["test_cer"] = np.array(test_cer)
 
             with open(args["outputDir"] + "/trainingStats", "wb") as file:
-                pickle.dump(tStats, file)
+                pickle.dump(t_stats, file)
 
 
 def loadModel(modelDir, nInputLayers=24, device="cuda"):

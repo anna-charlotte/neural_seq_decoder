@@ -1,11 +1,13 @@
 import torch
+from torch.utils.data import DataLoader
 
 
 class MergedDataLoader:
-    def __init__(self, loader1, loader2, prop1=0.5):
+    def __init__(self, loader1: DataLoader, loader2: DataLoader, prop1: float = 0.5):
         self.loader1 = loader1
         self.loader2 = loader2
         self.prop1 = prop1
+        assert 0.0 <= prop1 <= 1.0
 
         self.iter1 = iter(self.loader1)
         self.iter2 = iter(self.loader2)

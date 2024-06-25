@@ -7,7 +7,7 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset
 
 
-def _padding(batch):
+def _padding(batch: tuple) -> tuple:
 
     X, y, X_lens, y_lens, days = zip(*batch)
 
@@ -24,7 +24,7 @@ def _padding(batch):
 
 
 class BaseDataset(Dataset, ABC):
-    def __init__(self, data: list[Dict], transform=None):
+    def __init__(self, data: list[Dict], transform: callable = None) -> None:
         self.data = data
         self.transform = transform
         self.n_days = len(data)
@@ -57,7 +57,7 @@ class BaseDataset(Dataset, ABC):
 
 
 class SpeechDataset(BaseDataset):
-    def prepare_data(self):
+    def prepare_data(self) -> None:
         self.n_trials = sum([len(d["sentenceDat"]) for d in self.data])
         self.neural_feats = []
         self.phone_seqs = []
@@ -72,7 +72,7 @@ class SpeechDataset(BaseDataset):
                 self.phone_seq_lens.append(self.data[day]["phoneLens"][trial])
                 self.days.append(day)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx) -> tuple:
         neural_feats = torch.tensor(self.neural_feats[idx], dtype=torch.float32)
         if self.transform:
             neural_feats = self.transform(neural_feats)
@@ -84,20 +84,20 @@ class SpeechDataset(BaseDataset):
             torch.tensor(self.days[idx], dtype=torch.int64),
         )
 
-    def __len__(self):
+    def __len__(self) -> int:
         return self.n_trials
 
 
 class PhonemeDataset(BaseDataset):
     def __init__(
-        self, data: list[Dict], transform=None, kernel_len: int = 32, stride: int = 4, phoneme_cls: int = None
-    ):
+        self, data: list[Dict], transform: callable = None, kernel_len: int = 32, stride: int = 4, phoneme_cls: int = None
+    ) -> None:
         self.kernel_len = kernel_len
         self.stride = stride
         self.phoneme_cls = phoneme_cls
         super().__init__(data, transform)
 
-    def prepare_data(self):
+    def prepare_data(self)-> None:
         if self.phoneme_cls is not None:
             assert self.phoneme_cls in range(len(PHONE_DEF_SIL))
 
@@ -121,7 +121,7 @@ class PhonemeDataset(BaseDataset):
 
         self.n_trials = len(self.phonemes)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx) -> tuple:
         neural_window = torch.tensor(self.neural_windows[idx], dtype=torch.float32)
         phoneme = torch.tensor(self.phonemes[idx], dtype=torch.int32)
         logits = torch.tensor(self.logits[idx], dtype=torch.float32)
@@ -136,5 +136,5 @@ class PhonemeDataset(BaseDataset):
             torch.tensor(self.days[idx], dtype=torch.int64),
         )
     
-    def __len__(self):
+    def __len__(self) -> int:
         return self.n_trials
