@@ -135,3 +135,6 @@ class PhonemeDataset(BaseDataset):
             logits,
             torch.tensor(self.days[idx], dtype=torch.int64),
         )
+    
+    def __len__(self):
+        return self.n_trials
