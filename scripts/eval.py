@@ -10,8 +10,8 @@ from tqdm import tqdm
 
 from neural_decoder.dataset import SpeechDataset, _padding, _padding_extended
 from neural_decoder.neural_decoder_trainer import (
-    getDataLoader,
-    getDatasetLoaders,
+    get_data_loader,
+    get_dataset_loaders,
     loadModel,
 )
 
@@ -213,7 +213,7 @@ if __name__ == "__main__":
 
     args["datasetPath"] = datsetPath
 
-    trainLoaders, testLoaders, loadedData = getDatasetLoaders(args["datasetPath"], args["batchSize"])
+    trainLoaders, testLoaders, loadedData = get_dataset_loaders(args["datasetPath"], args["batchSize"])
 
     device = "cuda"
 

@@ -1,4 +1,4 @@
-from neural_decoder.neural_decoder_trainer import getDataLoader
+from neural_decoder.neural_decoder_trainer import get_data_loader
 from neural_decoder.dataset import PhonemeDataset, SpeechDataset, _padding
 import pickle
 import numpy as np
@@ -9,7 +9,7 @@ def test_speech_dataset():
     with open(dataset_file, "rb") as handle:
         loaded_data = pickle.load(handle)
 
-    train_dl = getDataLoader(
+    train_dl = get_data_loader(
         data=loaded_data["train"], 
         batch_size=16, 
         collate_fn=_padding, 
@@ -35,7 +35,7 @@ def test_phoneme_speech_dataset():
     with open(test_file, "rb") as handle:
         data = pickle.load(handle)
 
-    dl = getDataLoader(
+    dl = get_data_loader(
         data=data, batch_size=16, shuffle=False, collate_fn=None, dataset_cls=PhonemeDataset
     )
 

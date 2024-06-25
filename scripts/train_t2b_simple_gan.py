@@ -11,7 +11,7 @@ import torch.optim as optim
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence, pad_sequence
 
 from neural_decoder.dataset import PhonemeDataset
-from neural_decoder.neural_decoder_trainer import getDataLoader
+from neural_decoder.neural_decoder_trainer import get_data_loader
 
 
 def main(args: dict) -> None:
@@ -26,14 +26,13 @@ def main(args: dict) -> None:
     with open(train_file, "rb") as handle:
         train_data = pickle.load(handle)
 
-    train_dl = getDataLoader(
+    train_dl = get_data_loader(
         data=train_data, batch_size=batch_size, shuffle=True, collate_fn=None, dataset_cls=PhonemeDataset
     )
     phonemes = []
 
     for i, batch in enumerate(train_dl):
         neural_window, phoneme, logits, dayIdx = batch
-        print(f"neural_window.size() = {neural_window.size()}")
         neural_window, phoneme, logits, dayIdx = (
             neural_window.to(device),
             phoneme.to(device),
@@ -45,7 +44,7 @@ def main(args: dict) -> None:
     with open(test_file, "rb") as handle:
         test_data = pickle.load(handle)
 
-    test_dl = getDataLoader(
+    test_dl = get_data_loader(
         data=test_data, batch_size=batch_size, shuffle=False, collate_fn=None, dataset_cls=PhonemeDataset
     )
 

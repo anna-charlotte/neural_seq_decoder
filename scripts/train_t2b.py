@@ -9,7 +9,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence, pad_sequence
 
-from neural_decoder.neural_decoder_trainer import getDatasetLoaders
+from neural_decoder.neural_decoder_trainer import get_dataset_loaders
 from text2brain.models.rnn import TextToBrainGRU
 from text2brain.models.utils import load_text2brain_model
 
@@ -25,7 +25,7 @@ def main(args: dict) -> None:
     batch_size = args["batch_size"]
 
     print("Get data loaders ...")
-    train_loader, test_loader, loaded_data = getDatasetLoaders(
+    train_loader, test_loader, loaded_data = get_dataset_loaders(
         args["dataset_path"],
         batch_size,
     )

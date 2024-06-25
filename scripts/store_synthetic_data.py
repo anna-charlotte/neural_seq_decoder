@@ -2,7 +2,7 @@ import pickle
 from pathlib import Path
 
 from neural_decoder.dataset import _padding
-from neural_decoder.neural_decoder_trainer import getDataLoader, getDatasetLoaders
+from neural_decoder.neural_decoder_trainer import get_data_loader, get_dataset_loaders
 from text2brain.models.utils import load_text2brain_model
 from text2brain.synthetic_data import save_synthetic_data
 
@@ -15,7 +15,7 @@ if __name__ == "__main__":
     model = load_text2brain_model(model_dir=model_dir)
 
     # load dataloaders
-    train_dl, _, _ = getDatasetLoaders(
+    train_dl, _, _ = get_dataset_loaders(
         datasetName=input_data_file,
         batchSize=1,
     )
@@ -39,7 +39,7 @@ if __name__ == "__main__":
     with open(file, "rb") as handle:
         loaded_data = pickle.load(handle)
 
-    train_dl = getDataLoader(
+    train_dl = get_data_loader(
         data=loaded_data,
         batch_size=16,
         shuffle=True,

@@ -13,7 +13,7 @@ from .dataset import SpeechDataset, _padding
 from .model import GRUDecoder
 
 
-def getDataLoader(
+def get_data_loader(
     data: dict,
     batch_size: int,
     shuffle: bool,
@@ -34,12 +34,12 @@ def getDataLoader(
     return dl
 
 
-def getDatasetLoaders(
+def get_dataset_loaders(
     datasetName: str,
     batchSize: int,
     dataset_cls: Type[Any] = SpeechDataset,
 ) -> Tuple[DataLoader, DataLoader, dict]:
-    print("In getDatasetLoaders()")
+    print("In get_dataset_loaders()")
     with open(datasetName, "rb") as handle:
         loadedData = pickle.load(handle)
 
@@ -51,14 +51,14 @@ def getDatasetLoaders(
     else:
         raise ValueError(f"Given dataset class is not valid: {dataset_cls}")
         
-    train_dl = getDataLoader(
+    train_dl = get_data_loader(
         data=loadedData["train"],
         batch_size=batchSize,
         shuffle=True,
         collate_fn=padding_fnc,
         dataset_cls=dataset_cls,
     )
-    test_dl = getDataLoader(
+    test_dl = get_data_loader(
         data=loadedData["test"],
         batch_size=batchSize,
         shuffle=True,
@@ -78,7 +78,7 @@ def trainModel(args):
     with open(args["outputDir"] + "/args", "wb") as file:
         pickle.dump(args, file)
 
-    trainLoader, testLoader, loadedData = getDatasetLoaders(
+    trainLoader, testLoader, loadedData = get_dataset_loaders(
         args["datasetPath"],
         args["batchSize"],
     )
@@ -86,7 +86,7 @@ def trainModel(args):
         with open(datasetName, "rb") as handle:
             data = pickle.load(handle)
 
-        syntheticLoader = getDataLoader(
+        syntheticLoader = get_data_loader(
             data=data,
             batch_size=args["batchSize"],
             shuffle=True,
