@@ -5,10 +5,11 @@ from typing import Dict
 import neuralDecoder.utils.lmDecoderUtils as lmDecoderUtils
 import numpy as np
 import torch
+import torch.nn as nn
 from edit_distance import SequenceMatcher
 from tqdm import tqdm
 
-from neural_decoder.dataset import SpeechDataset, _padding, _padding_extended
+from neural_decoder.dataset import SpeechDataset, _padding
 from neural_decoder.neural_decoder_trainer import (
     get_data_loader,
     get_dataset_loaders,

@@ -75,7 +75,7 @@ class GaussianSmoothing(nn.Module):
         else:
             raise RuntimeError("Only 1, 2 and 3 dimensions are supported. Received {}.".format(dim))
 
-    def forward(self, input: torch.Tensor) -> tyorch.Tensor:
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
         """
         Apply gaussian filter to input.
         Arguments:
