@@ -1,7 +1,7 @@
 import os
 import pickle
 import time
-from typing import Tuple, Type, Any
+from typing import Any, Tuple, Type
 
 import hydra
 import numpy as np
@@ -15,9 +15,8 @@ from .model import GRUDecoder
 
 
 def _padding(batch):
-    
+
     X, y, X_lens, y_lens, days = zip(*batch)
-    
 
     X_padded = pad_sequence(X, batch_first=True, padding_value=0)
     y_padded = pad_sequence(y, batch_first=True, padding_value=0)
@@ -32,11 +31,11 @@ def _padding(batch):
 
 
 def _padding_extended(batch):
-    
+
     X, y, X_lens, y_lens, days, logits, logits_lens = zip(*batch)
     for logit in logits:
         print(f"logit.size() = {logit.size()}")
-    
+
     X_padded = pad_sequence(X, batch_first=True, padding_value=0)
     y_padded = pad_sequence(y, batch_first=True, padding_value=0)
     logits_padded = pad_sequence(logits, batch_first=True, padding_value=0)
@@ -49,16 +48,16 @@ def _padding_extended(batch):
         torch.stack(X_lens),
         torch.stack(y_lens),
         torch.stack(days),
-        logits_padded, 
-        torch.stack(logits_lens)
+        logits_padded,
+        torch.stack(logits_lens),
     )
 
 
 def getDataLoader(
     data: dict,
-    batch_size: int, 
-    shuffle: bool, 
-    collate_fn: callable, 
+    batch_size: int,
+    shuffle: bool,
+    collate_fn: callable,
     transform: callable = None,
     dataset_cls: Type[Any] = SpeechDataset,
 ) -> DataLoader:
@@ -68,20 +67,13 @@ def getDataLoader(
     ds = dataset_cls(data, transform=transform)
 
     dl = DataLoader(
-        ds,
-        batch_size=batch_size,
-        shuffle=shuffle,
-        num_workers=0,
-        pin_memory=True,
-        collate_fn=collate_fn,
+        ds, batch_size=batch_size, shuffle=shuffle, num_workers=0, pin_memory=True, collate_fn=collate_fn,
     )
     return dl
 
 
 def getDatasetLoaders(
-    datasetName: str,
-    batchSize: int,
-    dataset_cls: Type[Any] = SpeechDataset,
+    datasetName: str, batchSize: int, dataset_cls: Type[Any] = SpeechDataset,
 ) -> Tuple[DataLoader, DataLoader, dict]:
     print("In getDatasetLoaders()")
     with open(datasetName, "rb") as handle:
@@ -97,14 +89,14 @@ def getDatasetLoaders(
         batch_size=batchSize,
         shuffle=True,
         collate_fn=_padding_fnc,
-        dataset_cls=dataset_cls
+        dataset_cls=dataset_cls,
     )
     test_dl = getDataLoader(
         data=loadedData["test"],
         batch_size=batchSize,
         shuffle=True,
         collate_fn=_padding_fnc,
-        dataset_cls=dataset_cls
+        dataset_cls=dataset_cls,
     )
 
     return train_dl, test_dl, loadedData
@@ -119,28 +111,20 @@ def trainModel(args):
     with open(args["outputDir"] + "/args", "wb") as file:
         pickle.dump(args, file)
 
-    trainLoader, testLoader, loadedData = getDatasetLoaders(
-        args["datasetPath"],
-        args["batchSize"],
-    )
+    trainLoader, testLoader, loadedData = getDatasetLoaders(args["datasetPath"], args["batchSize"],)
     if "datasetPathSynthetic" in args.keys() and args["datasetPathSynthetic"] != "":
         with open(datasetName, "rb") as handle:
             data = pickle.load(handle)
-        
+
         syntheticLoader = getDataLoader(
-            data=data, 
-            batch_size= args["batchSize"],
-            shuffle=True,
-            collate_fn=_padding,
+            data=data, batch_size=args["batchSize"], shuffle=True, collate_fn=_padding,
         )
-        assert 0.0 <= args["proportionSynthetic"] <= 1.0, "The value for the proportion of synthetic data is not in the range 0.0 to 1.0."
+        assert (
+            0.0 <= args["proportionSynthetic"] <= 1.0
+        ), "The value for the proportion of synthetic data is not in the range 0.0 to 1.0."
         propSynthetic = 1 - args["proportionSynthetic"]
 
-        trainLoader = MergedDataLoader(
-            loader1=trainLoader, 
-            loader2=syntheticLoader, 
-            prop1=propSynthetic
-        )
+        trainLoader = MergedDataLoader(loader1=trainLoader, loader2=syntheticLoader, prop1=propSynthetic)
 
     model = GRUDecoder(
         neural_dim=args["nInputFeatures"],
@@ -158,17 +142,10 @@ def trainModel(args):
 
     loss_ctc = torch.nn.CTCLoss(blank=0, reduction="mean", zero_infinity=True)
     optimizer = torch.optim.Adam(
-        model.parameters(),
-        lr=args["lrStart"],
-        betas=(0.9, 0.999),
-        eps=0.1,
-        weight_decay=args["l2_decay"],
+        model.parameters(), lr=args["lrStart"], betas=(0.9, 0.999), eps=0.1, weight_decay=args["l2_decay"],
     )
     scheduler = torch.optim.lr_scheduler.LinearLR(
-        optimizer,
-        start_factor=1.0,
-        end_factor=args["lrEnd"] / args["lrStart"],
-        total_iters=args["nBatch"],
+        optimizer, start_factor=1.0, end_factor=args["lrEnd"] / args["lrStart"], total_iters=args["nBatch"],
     )
 
     # --train--
@@ -242,8 +219,7 @@ def trainModel(args):
                     adjustedLens = ((X_len - model.kernelLen) / model.strideLen).to(torch.int32)
                     for iterIdx in range(pred.shape[0]):
                         decodedSeq = torch.argmax(
-                            torch.tensor(pred[iterIdx, 0 : adjustedLens[iterIdx], :]),
-                            dim=-1,
+                            torch.tensor(pred[iterIdx, 0 : adjustedLens[iterIdx], :]), dim=-1,
                         )  # [num_seq,]
                         decodedSeq = torch.unique_consecutive(decodedSeq, dim=-1)
                         decodedSeq = decodedSeq.cpu().detach().numpy()

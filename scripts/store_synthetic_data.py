@@ -18,10 +18,7 @@ if __name__ == "__main__":
     model = load_text2brain_model(model_dir=model_dir)
 
     # load dataloaders
-    train_dl, _, _ = getDatasetLoaders(
-        datasetName=input_data_file,
-        batchSize=1,
-    )
+    train_dl, _, _ = getDatasetLoaders(datasetName=input_data_file, batchSize=1,)
 
     file_name = "pytorchTFRecords_synthetic.pkl"
     save_synthetic_data(
@@ -42,12 +39,7 @@ if __name__ == "__main__":
     with open(file, "rb") as handle:
         loaded_data = pickle.load(handle)
 
-    train_dl = getDataLoader(
-        data=loaded_data,
-        batch_size=16,
-        shuffle=True,
-        collate_fn=_padding,
-    )
+    train_dl = getDataLoader(data=loaded_data, batch_size=16, shuffle=True, collate_fn=_padding,)
     for i, batch in enumerate(train_dl):
         print()
         y, text, y_len, X_len, dayIdx = batch

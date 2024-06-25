@@ -1,6 +1,7 @@
+from typing import Dict
+
 import torch
 from torch.utils.data import Dataset
-from typing import Dict
 
 
 class SpeechDataset(Dataset):
@@ -64,17 +65,16 @@ class ExtendedSpeechDataset(Dataset):
                 self.neural_time_bins.append(data[day]["sentenceDat"][trial].shape[0])
                 self.phone_seq_lens.append(data[day]["phoneLens"][trial])
                 self.days.append(day)
-                
+
                 if "logits" in data[day].keys():
                     self.logits.append(data[day]["logits"][trial])
                 else:
                     self.logits.append([])
-                
+
                 if "logitLengths" in data[day].keys():
                     self.logit_lengths.append(data[day]["logits"][trial])
                 else:
                     self.logit_lengths.append([])
-                
 
     def __len__(self):
         return self.n_trials
