@@ -6,6 +6,7 @@ import torch
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset
 
+from neural_decoder.phoneme_utils import PHONE_DEF_SIL
 
 def _padding(batch: tuple) -> tuple:
 
