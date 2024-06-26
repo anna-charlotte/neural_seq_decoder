@@ -9,7 +9,7 @@ import torch
 from edit_distance import SequenceMatcher
 from torch.utils.data import DataLoader
 
-from .dataset import SpeechDataset, _padding
+from .dataset import PhonemeDataset, SpeechDataset, _padding
 from .model import GRUDecoder
 
 
@@ -20,9 +20,15 @@ def get_data_loader(
     collate_fn: callable,
     transform: callable = None,
     dataset_cls: Type[Any] = SpeechDataset,
+    phoneme_cls: int = None,
 ) -> DataLoader:
+    if dataset_cls == SpeechDataset:
+        ds = SpeechDataset(data, transform=transform)
+    elif dataset_cls == PhonemeDataset:
+        ds = PhonemeDataset(data, transform=transform, phoneme_cls=phoneme_cls)
+    else:
+        raise ValueError(f"Given dataset_cls is not valid: {dataset_cls.__name__}")
 
-    ds = dataset_cls(data, transform=transform)
     dl = DataLoader(
         ds,
         batch_size=batch_size,
