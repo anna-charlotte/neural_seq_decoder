@@ -27,9 +27,6 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
 
-
-
-
 class Generator(nn.Module):
     def __init__(self, latent_dim, ngf):
         super(Generator, self).__init__()
@@ -72,13 +69,18 @@ class Discriminator(nn.Module):
             nn.LeakyReLU(0.2, inplace=True),
             # state size: (ndf*4) x 1 x 1
             nn.Conv2d(ndf * 4, 1, 1, 1, 0, bias=False),
-            nn.Sigmoid()
+            # nn.Sigmoid()
             # output. 1 x 1 x 1
         )
 
     def forward(self, input):
         output = self.model(input)
         return output.view(-1)
+
+
+def weights_init(m):
+    if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d) or isinstance(m, nn.BatchNorm2d):
+        nn.init.normal_(m.weight.data, 0.0, 0.02)
 
 
 def main(args: dict) -> None:
@@ -89,7 +91,6 @@ def main(args: dict) -> None:
     torch.use_deterministic_algorithms(True)
     
     device = args["device"]
-    n_batches = args["n_batches"]
     batch_size = args["batch_size"]
     phoneme_cls = 2
     print(f"device = {device}")
@@ -130,21 +131,19 @@ def main(args: dict) -> None:
     ndf = 64  # Size of feature maps in discriminator
 
     n_epochs = 50
-    lr = 0.0002
-    beta1 = 0.5
+    lr = 0.00005
+    clip_value = 0.01  # Weight clipping value
+    n_critic = 3  # Number of critic iterations per generator iteration
+
 
     gen = Generator(latent_dim, ngf).to(device)
     dis = Discriminator(n_channels, ndf).to(device)
 
-    loss_fn = nn.BCELoss()
+    gen.apply(weights_init)
+    dis.apply(weights_init)
 
-    fixed_noise = torch.randn(64, latent_dim, 1, 1, device=device)
-
-    real_label = 1.
-    fake_label = 0.
-
-    optimizerD = optim.Adam(dis.parameters(), lr=lr, betas=(beta1, 0.999))
-    optimizerG = optim.Adam(gen.parameters(), lr=lr, betas=(beta1, 0.999))
+    optimizerD = optim.RMSprop(dis.parameters(), lr=lr)
+    optimizerG = optim.RMSprop(gen.parameters(), lr=lr)
 
     G_losses = []
     D_losses = []
@@ -155,42 +154,32 @@ def main(args: dict) -> None:
             X_real = X_real.to(device)
             X_real = X_real.view(X_real.size(0), X_real.size(1), 16, 16)
 
-            # discriminator: real data
-            dis.zero_grad()
-            label = torch.full((y.size(0),), real_label, dtype=torch.float, device=device)
-            output = dis(X_real)
-            errD_real = loss_fn(output, label)
-            errD_real.backward()
-            D_x = output.mean().item()
+            # Update discriminator n_critic times
+            for _ in range(n_critic):
+                dis.zero_grad()
+                output_real = dis(X_real)
+                noise = torch.randn(y.size(0), latent_dim, 1, 1, device=device)
+                X_fake = gen(noise)
+                output_fake = dis(X_fake.detach())
+                errD = -(torch.mean(output_real) - torch.mean(output_fake))
+                errD.backward()
+                optimizerD.step()
 
-            # discriminator: fake data
-            noise = torch.randn(y.size(0), latent_dim, 1, 1, device=device)
-            X_fake = gen(noise)
-            label.fill_(fake_label)
-            output = dis(X_fake.detach())
-            errD_fake = loss_fn(output, label)
-            errD_fake.backward()
-            D_G_z1 = output.mean().item()
-            errD = errD_real + errD_fake
+                # Weight clipping
+                for p in dis.parameters():
+                    p.data.clamp_(-clip_value, clip_value)
 
-            optimizerD.step()
-
-            # generator
+            # Update generator
             gen.zero_grad()
-            label.fill_(real_label)  # fake labels are real for generator cost
-            # Since we just updated D, perform another forward pass of all-fake batch through D
-            output = dis(X_fake).view(-1)
-            errG = loss_fn(output, label)
+            output_fake = dis(X_fake)
+            errG = -torch.mean(output_fake)
             errG.backward()
-            D_G_z2 = output.mean().item()
-            # Update G
             optimizerG.step()
 
             # Output training stats
             if i % 50 == 0:
-                print('[%d/%d][%d/%d]\tLoss_D: %.4f\tLoss_G: %.4f\tD(x): %.4f\tD(G(z)): %.4f / %.4f'
-                    % (epoch, n_epochs, i, len(train_dl),
-                        errD.item(), errG.item(), D_x, D_G_z1, D_G_z2))
+                if i % 50 == 0:
+                    print(f'[{epoch}/{n_epochs}][{i}/{len(train_dl)}] Loss_D: {errD.item()} Loss_G: {errG.item()}')
 
             # Save Losses for plotting later
             G_losses.append(errG.item())
@@ -232,7 +221,6 @@ if __name__ == "__main__":
     )
     # args["output_dir"] = "/data/engs-pnpl/lina4471/synthetic_data_willett2023/simple_rnn"
     args["batch_size"] = 8
-    args["n_batches"] = 10000
     args["n_input_features"] = 41
     args["n_output_features"] = 256
     args["hidden_dim"] = 512
