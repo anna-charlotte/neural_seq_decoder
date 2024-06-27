@@ -30,7 +30,7 @@ channel_order_2 = [
 ]
 
 
-def plot_brain_signal_animation(signal: torch.Tensor, save_path: Path) -> None:
+def plot_brain_signal_animation(signal: torch.Tensor, save_path: Path, title: str = "Frame") -> None:
     
     assert len(signal.size()) == 2
     assert signal.size(1) == 256
@@ -54,6 +54,9 @@ def plot_brain_signal_animation(signal: torch.Tensor, save_path: Path) -> None:
             break
 
     fig, axs = plt.subplots(2, 2)
+    fig.subplots_adjust(hspace=0.3, wspace=0.4) 
+
+
     ims = []
     cbs = []
 
@@ -63,7 +66,7 @@ def plot_brain_signal_animation(signal: torch.Tensor, save_path: Path) -> None:
         cb = fig.colorbar(im, ax=ax) 
         cbs.append(cb)
     
-    titles = ["Signal 1 (6v)", "Signal 1 (6v)", "Spike power 1", "Spike power 1"]
+    titles = ["Signal 1 (6v)", "Signal 2 (6v)", "Spike power 1", "Spike power 2"]
 
     def animate(i):
         for j, (im, img, ax) in enumerate(zip(ims, img_list[i], axs.flatten())):
@@ -74,7 +77,7 @@ def plot_brain_signal_animation(signal: torch.Tensor, save_path: Path) -> None:
 
             im.set_data(img) 
 
-        fig.suptitle(f'Frame {i}')
+        fig.suptitle(f'{title} {i}')
 
         return ax
 
