@@ -1,7 +1,9 @@
-from neural_decoder.neural_decoder_trainer import get_data_loader
-from neural_decoder.dataset import PhonemeDataset, SpeechDataset, _padding
 import pickle
+
 import numpy as np
+
+from neural_decoder.dataset import PhonemeDataset, SpeechDataset, _padding
+from neural_decoder.neural_decoder_trainer import get_data_loader
 
 
 def test_speech_dataset():
@@ -10,11 +12,11 @@ def test_speech_dataset():
         loaded_data = pickle.load(handle)
 
     train_dl = get_data_loader(
-        data=loaded_data["train"], 
-        batch_size=16, 
-        collate_fn=_padding, 
-        shuffle=False, 
-        dataset_cls=SpeechDataset
+        data=loaded_data["train"],
+        batch_size=16,
+        collate_fn=_padding,
+        shuffle=False,
+        dataset_cls=SpeechDataset,
     )
 
     for i, batch in enumerate(train_dl):
@@ -28,16 +30,14 @@ def test_speech_dataset():
 
         if i == 2:
             break
-        
+
 
 def test_phoneme_speech_dataset():
     test_file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
     with open(test_file, "rb") as handle:
         data = pickle.load(handle)
 
-    dl = get_data_loader(
-        data=data, batch_size=16, shuffle=False, collate_fn=None, dataset_cls=PhonemeDataset
-    )
+    dl = get_data_loader(data=data, batch_size=16, shuffle=False, collate_fn=None, dataset_cls=PhonemeDataset)
 
     neural_windows, phonemes, logits, dayIdx = next(iter(dl))
 
@@ -45,4 +45,3 @@ def test_phoneme_speech_dataset():
     assert phonemes.size() == (16,)
     assert logits.size() == (16, 41)
     assert dayIdx.size() == (16,)
-

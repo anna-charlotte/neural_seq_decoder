@@ -56,7 +56,7 @@ def get_dataset_loaders(
         padding_fnc = None
     else:
         raise ValueError(f"Given dataset class is not valid: {dataset_cls}")
-        
+
     train_dl = get_data_loader(
         data=loaded_data["train"],
         batch_size=batch_size,

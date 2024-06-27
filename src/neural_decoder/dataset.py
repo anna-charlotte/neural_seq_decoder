@@ -8,6 +8,7 @@ from torch.utils.data import Dataset
 
 from neural_decoder.phoneme_utils import PHONE_DEF_SIL
 
+
 def _padding(batch: tuple) -> tuple:
 
     X, y, X_lens, y_lens, days = zip(*batch)
@@ -91,14 +92,19 @@ class SpeechDataset(BaseDataset):
 
 class PhonemeDataset(BaseDataset):
     def __init__(
-        self, data: list[Dict], transform: callable = None, kernel_len: int = 32, stride: int = 4, phoneme_cls: int = None
+        self,
+        data: list[Dict],
+        transform: callable = None,
+        kernel_len: int = 32,
+        stride: int = 4,
+        phoneme_cls: int = None,
     ) -> None:
         self.kernel_len = kernel_len
         self.stride = stride
         self.phoneme_cls = phoneme_cls
         super().__init__(data, transform)
 
-    def prepare_data(self)-> None:
+    def prepare_data(self) -> None:
         if self.phoneme_cls is not None:
             assert self.phoneme_cls in range(len(PHONE_DEF_SIL))
 
@@ -136,6 +142,6 @@ class PhonemeDataset(BaseDataset):
             logits,
             torch.tensor(self.days[idx], dtype=torch.int64),
         )
-    
+
     def __len__(self) -> int:
         return self.n_trials

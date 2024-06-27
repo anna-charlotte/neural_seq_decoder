@@ -28,7 +28,7 @@ def main(args: dict) -> None:
     np.random.seed(args["seed"])
     torch.manual_seed(args["seed"])
     torch.use_deterministic_algorithms(True)
-    
+
     device = args["device"]
     batch_size = args["batch_size"]
     phoneme_cls = 4
@@ -39,14 +39,14 @@ def main(args: dict) -> None:
         train_data = pickle.load(handle)
 
     train_dl = get_data_loader(
-        data=train_data, 
-        batch_size=batch_size, 
-        shuffle=True, 
-        collate_fn=None, 
+        data=train_data,
+        batch_size=batch_size,
+        shuffle=True,
+        collate_fn=None,
         dataset_cls=PhonemeDataset,
-        phoneme_cls=phoneme_cls if isinstance(phoneme_cls, int) else None
+        phoneme_cls=phoneme_cls if isinstance(phoneme_cls, int) else None,
     )
-    
+
     print(f"len(train_dl.dataset) = {len(train_dl.dataset)}")
 
     test_file = args["test_set_path"]
@@ -54,26 +54,26 @@ def main(args: dict) -> None:
         test_data = pickle.load(handle)
 
     test_dl = get_data_loader(
-        data=test_data, 
-        batch_size=batch_size, 
-        shuffle=False, 
-        collate_fn=None, 
-        dataset_cls=PhonemeDataset, 
-        phoneme_cls=phoneme_cls if isinstance(phoneme_cls, int) else None
+        data=test_data,
+        batch_size=batch_size,
+        shuffle=False,
+        collate_fn=None,
+        dataset_cls=PhonemeDataset,
+        phoneme_cls=phoneme_cls if isinstance(phoneme_cls, int) else None,
     )
     print(f"len(test_dl.dataset) = {len(test_dl.dataset)}")
 
     # plot_brain_signal_animation(
-    #     signal=signal, 
-    #     save_path=ROOT_DIR / "plots"/ "data_visualization" / f"phone_{phoneme}_FAKE_ep{epoch}_i_{i}.gif" , 
+    #     signal=signal,
+    #     save_path=ROOT_DIR / "plots"/ "data_visualization" / f"phone_{phoneme}_FAKE_ep{epoch}_i_{i}.gif" ,
     #     title=f"Phoneme {phoneme}, Frame"
     # )
-    
+
     n_channels = 32
     latent_dim = 100
-    
-    ngf = 64 
-    ndf = 64 
+
+    ngf = 64
+    ndf = 64
 
     n_epochs = 50
     lr = 0.00005
@@ -81,11 +81,11 @@ def main(args: dict) -> None:
     n_critic = 15
 
     gan = PhonemeImageGAN(
-        latent_dim=latent_dim, 
-        phoneme_cls=phoneme_cls, 
-        n_channels=n_channels, 
-        ndf=ndf, 
-        ngf=ngf, 
+        latent_dim=latent_dim,
+        phoneme_cls=phoneme_cls,
+        n_channels=n_channels,
+        ndf=ndf,
+        ngf=ngf,
         device=device,
         n_critic=n_critic,
         clip_value=clip_value,
@@ -104,14 +104,19 @@ def main(args: dict) -> None:
 
             # Output training stats
             if i % 250 == 0:
-                print(f'[{epoch}/{n_epochs}][{i}/{len(train_dl)}] Loss_D: {errD.item()} Loss_G: {errG.item()}')
+                print(
+                    f"[{epoch}/{n_epochs}][{i}/{len(train_dl)}] Loss_D: {errD.item()} Loss_G: {errG.item()}"
+                )
 
                 phoneme = 2
                 signal = gan.g(noise_vector, torch.tensor([phoneme]).to(device))
                 plot_brain_signal_animation(
-                    signal=signal, 
-                    save_path=ROOT_DIR / "plots"/ "data_visualization" / f"phone_{phoneme}_FAKE_ep{epoch}_i_{i}.gif" , 
-                    title=f"Phoneme {phoneme}, Frame"
+                    signal=signal,
+                    save_path=ROOT_DIR
+                    / "plots"
+                    / "data_visualization"
+                    / f"phone_{phoneme}_FAKE_ep{epoch}_i_{i}.gif",
+                    title=f"Phoneme {phoneme}, Frame",
                 )
 
             # Save Losses for plotting later
@@ -121,17 +126,15 @@ def main(args: dict) -> None:
     plot_gan_losses(G_losses, D_losses, out_file=ROOT_DIR / "plots" / "data_visualization" / "gan_losses.png")
 
 
-
 def plot_gan_losses(g_losses: list, d_losses: list, out_file: Path) -> None:
-    plt.figure(figsize=(10,5))
+    plt.figure(figsize=(10, 5))
     plt.title("Generator and Discriminator Loss During Training")
-    plt.plot(g_losses,label="G")
-    plt.plot(d_losses,label="D")
+    plt.plot(g_losses, label="G")
+    plt.plot(d_losses, label="D")
     plt.xlabel("iterations")
     plt.ylabel("Loss")
     plt.legend()
     plt.savefig(out_file)
-
 
 
 if __name__ == "__main__":

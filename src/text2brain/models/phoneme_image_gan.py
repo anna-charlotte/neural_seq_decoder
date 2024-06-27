@@ -1,37 +1,42 @@
+import argparse
 import os
 import pickle
+import random
 from pathlib import Path
 from typing import Dict, Union
 
+import matplotlib.animation as animation
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.optim as optim
-
-from neural_decoder.dataset import PhonemeDataset
-from neural_decoder.phoneme_utils import ROOT_DIR
-from neural_decoder.neural_decoder_trainer import get_data_loader
-from text2brain.visualization import plot_brain_signal_animation
-
-import argparse
-import os
-import random
-import torch
-import torch.nn as nn
 import torch.nn.parallel
 import torch.optim as optim
 import torch.utils.data
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
+
+from neural_decoder.dataset import PhonemeDataset
+from neural_decoder.neural_decoder_trainer import get_data_loader
+from neural_decoder.phoneme_utils import ROOT_DIR
+from text2brain.visualization import plot_brain_signal_animation
 
 
 class PhonemeImageGAN(nn.Module):
-    def __init__(self, latent_dim: int, phoneme_cls: Union[int, list], n_channels: int, ndf: int, ngf: int, device: str, n_critic: int = 5, clip_value: float = 0.01, lr=1e-4):
+    def __init__(
+        self,
+        latent_dim: int,
+        phoneme_cls: Union[int, list],
+        n_channels: int,
+        ndf: int,
+        ngf: int,
+        device: str,
+        n_critic: int = 5,
+        clip_value: float = 0.01,
+        lr=1e-4,
+    ):
         super(PhonemeImageGAN, self).__init__()
         if isinstance(phoneme_cls, list):
-            self.conditional=True
+            self.conditional = True
         else:
             self.conditional = False
 
@@ -81,6 +86,7 @@ class PhonemeImageGAN(nn.Module):
 
         return errD, errG
 
+
 class Generator(nn.Module):
     def __init__(self, latent_dim, phoneme_cls, ngf):
         super(Generator, self).__init__()
@@ -108,7 +114,7 @@ class Generator(nn.Module):
             nn.ReLU(True),
             # state size. (ngf*4) x 8 x 8
             nn.ConvTranspose2d(ngf * 4, 32, 4, 2, 1, bias=False),  # Output 32 channels, stop upscaling here
-            nn.Tanh()
+            nn.Tanh(),
             # Final state size. (32) x 16 x 16
         )
 
@@ -127,6 +133,7 @@ class Generator(nn.Module):
         gen_img = self.g(noise, label)
         return gen_img
 
+
 class Discriminator(nn.Module):
     def __init__(self, n_channels, phoneme_cls, ndf):
         super(Discriminator, self).__init__()
@@ -141,7 +148,6 @@ class Discriminator(nn.Module):
             input_dim = n_channels
             self.label_emb = None
 
-        
         self.model = nn.Sequential(
             # input is (n_channels) x 16 x 16
             nn.Conv2d(input_dim, ndf, 4, 2, 1, bias=False),
@@ -159,7 +165,7 @@ class Discriminator(nn.Module):
             # nn.Sigmoid()
             # output. 1 x 1 x 1
         )
-    
+
     def forward(self, img, labels):
         if self.conditional:
             labels = self.label_emb(labels)
@@ -170,4 +176,3 @@ class Discriminator(nn.Module):
             d_in = img
         output = self.model(d_in)
         return output.view(-1)
-

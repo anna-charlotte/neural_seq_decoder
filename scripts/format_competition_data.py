@@ -29,9 +29,7 @@ def load_features_and_normalize(session_path: str) -> dict:
     for i in range(n_trials):
         # get time series of TX and spike power for this trial
         # first 128 columns = area 6v only
-        features = np.concatenate(
-            [dat["tx1"][0, i][:, 0:128], dat["spikePow"][0, i][:, 0:128]], axis=1
-        )
+        features = np.concatenate([dat["tx1"][0, i][:, 0:128], dat["spikePow"][0, i][:, 0:128]], axis=1)
 
         sentence_len = features.shape[0]
         sentence = dat["sentenceText"][i].strip()
@@ -50,9 +48,7 @@ def load_features_and_normalize(session_path: str) -> dict:
         blocks.append(sentIdx)
 
     for b in range(len(blocks)):
-        feats = np.concatenate(
-            input_features[blocks[b][0] : (blocks[b][-1] + 1)], axis=0
-        )
+        feats = np.concatenate(input_features[blocks[b][0] : (blocks[b][-1] + 1)], axis=0)
         feats_mean = np.mean(feats, axis=0, keepdims=True)
         feats_std = np.std(feats, axis=0, keepdims=True)
         for i in blocks[b]:
@@ -107,9 +103,7 @@ def get_dataset(file_name):
         ]  # + 1 to be consistent with the pipeline, the shifted on eval
         seq_elements.append(seq_class_ids)
         padded_transcription = np.zeros([max_seq_len]).astype(np.int32)
-        padded_transcription[0 : len(transcription)] = np.array(
-            _convert_to_ascii(transcription)
-        )
+        padded_transcription[0 : len(transcription)] = np.array(_convert_to_ascii(transcription))
         true_sentences.append(padded_transcription)
 
     out_data = {}
@@ -127,9 +121,9 @@ def get_dataset(file_name):
 
     out_data["timeSeriesLens"] = np.array(time_series_len)
     out_data["phoneLens"] = np.array(phone_len)
-    out_data["phonePerTime"] = out_data["phoneLens"].astype(
+    out_data["phonePerTime"] = out_data["phoneLens"].astype(np.float32) / out_data["timeSeriesLens"].astype(
         np.float32
-    ) / out_data["timeSeriesLens"].astype(np.float32)
+    )
     return out_data
 
 
@@ -160,19 +154,13 @@ if __name__ == "__main__":
         train_ds.append(train_set)
         test_ds.append(test_set)
 
-        if os.path.exists(
-            data_dir + "/competitionHoldOut/" + session_names[dayIdx] + ".mat"
-        ):
-            dataset = get_dataset(
-                data_dir + "/competitionHoldOut/" + session_names[dayIdx] + ".mat"
-            )
+        if os.path.exists(data_dir + "/competitionHoldOut/" + session_names[dayIdx] + ".mat"):
+            dataset = get_dataset(data_dir + "/competitionHoldOut/" + session_names[dayIdx] + ".mat")
             competition_ds.append(dataset)
 
     competition_days = []
     for dayIdx in range(len(session_names)):
-        if os.path.exists(
-            data_dir + "/competitionHoldOut/" + session_names[dayIdx] + ".mat"
-        ):
+        if os.path.exists(data_dir + "/competitionHoldOut/" + session_names[dayIdx] + ".mat"):
             competition_days.append(dayIdx)
     print(f"competition_days = {competition_days}")
 

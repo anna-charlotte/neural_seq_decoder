@@ -1,37 +1,37 @@
 import pytest
 import torch
 from torch.utils.data import DataLoader, TensorDataset
-from neural_decoder.dataloader import MergedDataLoader
 
+from neural_decoder.dataloader import MergedDataLoader
 
 
 class TestMergedDataLoader:
     @pytest.fixture
     def create_loaders(self):
         # Create simple datasets and loaders
-        data1 = torch.randn(10, 2) 
+        data1 = torch.randn(10, 2)
         data2 = torch.randn(20, 2)
         targets1 = torch.zeros(10, dtype=torch.long)
         targets2 = torch.ones(20, dtype=torch.long)
-        
+
         dataset1 = TensorDataset(data1, targets1)
         dataset2 = TensorDataset(data2, targets2)
 
         loader1 = DataLoader(dataset1, batch_size=5)
-        loader2 = DataLoader(dataset2, batch_size=10)  
+        loader2 = DataLoader(dataset2, batch_size=10)
 
         return loader1, loader2
 
     def test_merge(self, create_loaders):
         loader1, loader2 = create_loaders
         merged_loader = MergedDataLoader(loader1, loader2, prop1=0.5)
-        
+
         # Count how many batches come from each loader
         count_loader1 = 0
         count_loader2 = 0
         num_batches = 0
 
-        for _ in range(1000): 
+        for _ in range(1000):
             batch = next(iter(merged_loader))
             num_batches += 1
             if batch[1].unique().item() == 0:
