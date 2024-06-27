@@ -32,9 +32,9 @@ channel_order_2 = [
 
 def plot_brain_signal_animation(signal: torch.Tensor, save_path: Path, title: str = "Frame") -> None:
     
-    assert len(signal.size()) == 2
-    assert signal.size(1) == 256
     print(signal.size())
+    # assert len(signal.size()) == 2
+    # assert signal.size(1) == 256
     
     reshaped_signal = signal.view(4, -1, 8, 8)
     img_list = []
@@ -46,12 +46,9 @@ def plot_brain_signal_animation(signal: torch.Tensor, save_path: Path, title: st
             #     imgs.append(img[channel_order_1])
             # if j == 1 or j == 3:
             #     imgs.append(img[channel_order_2])
-            imgs.append(img)
+            imgs.append(img.detach().cpu())
 
         img_list.append(imgs)
-
-        if i == 20:
-            break
 
     fig, axs = plt.subplots(2, 2)
     fig.subplots_adjust(hspace=0.3, wspace=0.4) 
@@ -70,12 +67,12 @@ def plot_brain_signal_animation(signal: torch.Tensor, save_path: Path, title: st
 
     def animate(i):
         for j, (im, img, ax) in enumerate(zip(ims, img_list[i], axs.flatten())):
+            im.set_data(img) 
+
             cbs[j].remove() 
             cb = fig.colorbar(im, ax=ax)
             cbs[j] = cb
             ax.set_title(titles[j])
-
-            im.set_data(img) 
 
         fig.suptitle(f'{title} {i}')
 
