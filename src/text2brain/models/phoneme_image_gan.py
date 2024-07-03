@@ -60,9 +60,15 @@ class PhonemeImageGAN(nn.Module):
 
     def forward(self, data):
         X_real, y, _, _ = data
+
         y = y.to(self.device)
         X_real = X_real.to(self.device)
-        X_real = X_real.view(X_real.size(0), X_real.size(1), 16, 16)
+        # X_real = X_real.view(X_real.size(0), X_real.size(1), 16, 16)
+        print(f"X_real.size() = {X_real.size()}")
+        X_real = X_real.view(-1, 128, 8, 8)
+        print(f"X_real.size() = {X_real.size()}")
+        if isinstance(self.phoneme_cls, list) and len(self.phoneme_cls) < 41:
+            y = y - 1
 
         for _ in range(self.n_critic):
             self.d.zero_grad()
@@ -110,6 +116,21 @@ class Generator(nn.Module):
             input_dim = latent_dim
             self.label_emb = None
 
+        # self.model = nn.Sequential(
+        #     # input is Z, going into a convolution
+        #     nn.ConvTranspose2d(input_dim, ngf * 8, 4, 1, 0, bias=False),
+        #     nn.BatchNorm2d(ngf * 8),
+        #     nn.ReLU(True),
+        #     # state size. (ngf*8) x 4 x 4
+        #     nn.ConvTranspose2d(ngf * 8, ngf * 4, 4, 2, 1, bias=False),
+        #     nn.BatchNorm2d(ngf * 4),
+        #     nn.ReLU(True),
+        #     # state size. (ngf*4) x 8 x 8
+        #     nn.ConvTranspose2d(ngf * 4, 32, 4, 2, 1, bias=False),  # Output 32 channels, stop upscaling here
+        #     nn.Tanh(),
+        #     # Final state size. (32) x 16 x 16
+        # )
+
         self.model = nn.Sequential(
             # input is Z, going into a convolution
             nn.ConvTranspose2d(input_dim, ngf * 8, 4, 1, 0, bias=False),
@@ -120,9 +141,9 @@ class Generator(nn.Module):
             nn.BatchNorm2d(ngf * 4),
             nn.ReLU(True),
             # state size. (ngf*4) x 8 x 8
-            nn.ConvTranspose2d(ngf * 4, 32, 4, 2, 1, bias=False),  # Output 32 channels, stop upscaling here
+            nn.ConvTranspose2d(ngf * 4, 128, 3, 1, 1, bias=False),  # Output 128 channels, stop upscaling here
             nn.Tanh(),
-            # Final state size. (32) x 16 x 16
+            # Fina state size. (128) x 8 x 8
         )
 
     def forward(self, noise, labels):
@@ -150,23 +171,45 @@ class Discriminator(nn.Module):
             input_dim = n_channels
             self.label_emb = None
 
+        # self.model = nn.Sequential(
+        #     # input is (n_channels) x 16 x 16
+        #     nn.Conv2d(input_dim, ndf, 4, 2, 1, bias=False),
+        #     nn.LeakyReLU(0.2, inplace=True),
+        #     # state size: (ndf) x 8 x 8
+        #     nn.Conv2d(ndf, ndf * 2, 4, 2, 1, bias=False),
+        #     nn.BatchNorm2d(ndf * 2),
+        #     nn.LeakyReLU(0.2, inplace=True),
+        #     # state size: (ndf*2) x 4 x 4
+        #     nn.Conv2d(ndf * 2, ndf * 4, 4, 1, 0, bias=False),
+        #     # nn.BatchNorm2d(ndf * 4),
+        #     nn.LeakyReLU(0.2, inplace=True),
+        #     # state size: (ndf*4) x 1 x 1
+        #     nn.Conv2d(ndf * 4, 1, 1, 1, 0, bias=False),
+        #     # nn.Sigmoid()
+        #     # output. 1 x 1 x 1
+        # )
+
         self.model = nn.Sequential(
-            # input is (n_channels) x 16 x 16
-            nn.Conv2d(input_dim, ndf, 4, 2, 1, bias=False),
+            # input is (input_dim) x 8 x 8
+            nn.Conv2d(input_dim, ndf, 3, 1, 1, bias=False),
             nn.LeakyReLU(0.2, inplace=True),
             # state size: (ndf) x 8 x 8
-            nn.Conv2d(ndf, ndf * 2, 4, 2, 1, bias=False),
+            nn.Conv2d(ndf, ndf * 2, 3, 2, 1, bias=False),
             nn.BatchNorm2d(ndf * 2),
             nn.LeakyReLU(0.2, inplace=True),
             # state size: (ndf*2) x 4 x 4
-            nn.Conv2d(ndf * 2, ndf * 4, 4, 1, 0, bias=False),
-            # nn.BatchNorm2d(ndf * 4),
+            nn.Conv2d(ndf * 2, ndf * 4, 3, 2, 1, bias=False),
+            nn.BatchNorm2d(ndf * 4),
             nn.LeakyReLU(0.2, inplace=True),
-            # state size: (ndf*4) x 1 x 1
-            nn.Conv2d(ndf * 4, 1, 1, 1, 0, bias=False),
-            # nn.Sigmoid()
+            # state size: (ndf*4) x 2 x 2
+            nn.Conv2d(ndf * 4, ndf * 8, 3, 2, 1, bias=False),
+            nn.BatchNorm2d(ndf * 8),
+            nn.LeakyReLU(0.2, inplace=True),
+            # state size: (ndf*8) x 1 x 1
+            nn.Conv2d(ndf * 8, 1, 1, 1, 0, bias=False),
             # output. 1 x 1 x 1
         )
+
 
     def forward(self, img, labels):
         if self.conditional:

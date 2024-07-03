@@ -100,13 +100,13 @@ def train_model(
     out_dir,
     n_epochs: int,
     patience: int,
-    auroc_average: str = "macro",
-):
+) -> dict:
     best_auroc = 0.0
     count_patience = 0
     all_train_losses = []
     all_test_losses = []
-    all_test_aurocs = []
+    all_test_aurocs_macro = []
+    all_test_aurocs_micro = []
 
     for i in range(n_epochs):
         for j, data in enumerate(train_dl):
@@ -125,8 +125,10 @@ def train_model(
             loss = criterion(pred, y.long())
             loss.backward()
             optimizer.step()
+            all_train_losses.append(loss.item())
 
-            if j % 10 == 0:
+            if j > 0 and j % 50 == 0:
+                print("Eval ...")
                 # evaluate
                 model.eval()
                 test_loss = 0.0
@@ -162,6 +164,8 @@ def train_model(
                         all_preds.append(probs.cpu())
                         all_labels.append(y.cpu())
 
+                all_test_losses.append(test_loss)
+            
                 test_acc = correct / total
 
                 all_preds = torch.cat(all_preds, dim=0)
@@ -173,17 +177,27 @@ def train_model(
                 all_preds_np_argmax = np.argmax(all_preds_np, axis=1)
 
                 # Calculate the AUROC
-                test_auroc = roc_auc_score(
-                    all_labels_np, all_preds_np, multi_class="ovr", average=auroc_average
+                test_auroc_macro = roc_auc_score(
+                    all_labels_np, all_preds_np, multi_class="ovr", average='macro'
                 )
+                all_test_aurocs_macro.append(test_auroc_macro)
+                
+                test_auroc_micro = roc_auc_score(
+                    all_labels_np, all_preds_np, multi_class="ovr", average='micro'
+                )
+                all_test_aurocs_micro.append(test_auroc_micro)
                 print(
-                    f"Epoch: {i}, batch: {j}, test AUROC: {test_auroc:.4f}, test accuracy: {test_acc:.4f}, test_loss: {test_loss:.4f}"
+                    f"Epoch: {i}, batch: {j}, test AUROC macro: {test_auroc_macro:.4f}, test AUROC micro: {test_auroc_micro:.4f}, test accuracy: {test_acc:.4f}, test_loss: {test_loss:.4f}"
                 )
 
-                if test_auroc > best_auroc:
+                if test_auroc_macro > best_auroc:
                     count_patience = 0
                     torch.save(model.state_dict(), out_dir / "modelWeights")
-                    best_auroc = test_auroc
+                    best_auroc = test_auroc_macro
+
+                    # Save the predictions and true labels
+                    torch.save(all_preds, out_dir / "all_preds.pt")
+                    torch.save(all_labels, out_dir / "all_labels.pt")
 
                     # Compute the confusion matrix
                     cm = confusion_matrix(all_labels, all_preds_np_argmax)
@@ -200,7 +214,7 @@ def train_model(
                     )
                     plt.xlabel("Predicted Phoneme")
                     plt.ylabel("True Phoneme")
-                    plt.title("Confusion Matrix - Phoneme Classifier")
+                    plt.title(f"Confusion Matrix - Phoneme Classifier (epoch: {i}, batch: {j})")
                     plt.savefig(ROOT_DIR / "plots" / "phoneme_classification_heatmap.png")
                     plt.savefig(out_dir / "phoneme_classification_heatmap.png")
                     plt.close()
@@ -209,7 +223,7 @@ def train_model(
                     if count_patience == patience:
                         break
 
-    return {"best_auroc": best_auroc}
+    return {"best_auroc": best_auroc, "train_losses": all_train_losses, "test_losses": all_test_losses, "test_aurocs_micro": all_test_aurocs_micro, "test_aurocs_macro": all_test_aurocs_macro}
 
 
 def main(args: dict) -> None:
@@ -242,7 +256,7 @@ def main(args: dict) -> None:
     # fmt: on
 
     # Calculate weights for each class
-    class_weights = 1.0 / np.array(class_counts)
+    class_weights = 1.0 / np.sqrt(np.array(class_counts))
     class_weights = torch.tensor(class_weights, dtype=torch.float32)
 
     train_dl = get_data_loader(
@@ -304,15 +318,16 @@ if __name__ == "__main__":
     ] = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
     args["n_epochs"] = 10
 
-    for lr in [1e-2, 1e-3]:
-        for batch_size in [32, 64, 128]:
+    for lr in [1e-4]:
+        for batch_size in [64, 128]:
             print(f"\n\nlr = {lr}")
             print(f"batch_size = {batch_size}")
             args[
                 "output_dir"
             ] = f"/data/engs-pnpl/lina4471/willett2023/phoneme_classifier/PhonemeClassifier_bs_{batch_size}_lr_{lr}"
+            args["generative_model_path"] = "/data/engs-pnpl/lina4471/willett2023/"
             args["lr"] = lr
-            args["batch_size"] = 64
+            args["batch_size"] = batch_size
 
             # args["n_input_features"] = 41
             # args["n_output_features"] = 256

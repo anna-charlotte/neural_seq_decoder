@@ -22,16 +22,16 @@ def main(args: dict) -> None:
 
     device = args["device"]
     batch_size = args["batch_size"]
-    phoneme_cls = [i for i in range(41)]
+    phoneme_cls = [i for i in range(39)]
     print(f"device = {device}")
 
     train_file = args["train_set_path"]
     with open(train_file, "rb") as handle:
         train_data = pickle.load(handle)
 
-    filter_by = {}
+    phoneme_ds_filter={"correctness_value": ["C"], "phoneme_cls": list(range(1, 40))}
     if isinstance(phoneme_cls, int):
-        filter_by = {"phoneme_cls": phoneme_cls}
+        phoneme_ds_filter["phoneme_cls"] = phoneme_cls
 
     train_dl = get_data_loader(
         data=train_data,
@@ -39,7 +39,7 @@ def main(args: dict) -> None:
         shuffle=True,
         collate_fn=None,
         dataset_cls=PhonemeDataset,
-        phoneme_ds_filter=filter_by,
+        phoneme_ds_filter=phoneme_ds_filter,
     )
 
     print(f"len(train_dl.dataset) = {len(train_dl.dataset)}")
@@ -54,10 +54,10 @@ def main(args: dict) -> None:
         shuffle=False,
         collate_fn=None,
         dataset_cls=PhonemeDataset,
-        phoneme_ds_filter=filter_by,
+        phoneme_ds_filter=phoneme_ds_filter,
     )
 
-    n_channels = 32
+    n_channels = 128
     latent_dim = 100
 
     ngf = 64
@@ -89,10 +89,10 @@ def main(args: dict) -> None:
             errD, errG = gan(data)
 
             # output training stats
-            if i % 250 == 0:
-                print(
-                    f"[{epoch}/{n_epochs}][{i}/{len(train_dl)}] Loss_D: {errD.item()} Loss_G: {errG.item()}"
-                )
+            # if i % 250 == 0:
+            #     print(
+            #         f"[{epoch}/{n_epochs}][{i}/{len(train_dl)}] Loss_D: {errD.item()} Loss_G: {errG.item()}"
+            #     )
 
             #     phoneme = 2
             #     signal = gan.g(noise_vector, torch.tensor([phoneme]).to(device))
@@ -152,7 +152,7 @@ if __name__ == "__main__":
     ] = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
     # args["output_dir"] = "/data/engs-pnpl/lina4471/synthetic_data_willett2023/simple_rnn"
     args["batch_size"] = 8
-    args["n_input_features"] = 41
+    args["n_input_features"] = 39
     args["n_output_features"] = 256
     args["hidden_dim"] = 512
     args["n_layers"] = 2
