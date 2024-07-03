@@ -1,6 +1,7 @@
 import difflib
 from pathlib import Path
 from typing import List, Tuple
+import torch
 
 ROOT_DIR = Path(__file__).parent.parent.parent
 
@@ -60,11 +61,9 @@ def id_to_phone(idx: int):
 
 def collapse_sequence(seq: List[int]) -> Tuple[List[int], List[List[int]]]:
     """Collapse consecutive identical phonemes in the sequence."""
-    if not seq:
-        return [], []
 
     collapsed_seq = [seq[0]]
-    original_indices = [[0]]  # Track original indices for each collapsed element
+    original_indices = [[0]]
 
     for i in range(1, len(seq)):
         if seq[i] != seq[i - 1]:
@@ -76,20 +75,27 @@ def collapse_sequence(seq: List[int]) -> Tuple[List[int], List[List[int]]]:
     return collapsed_seq, original_indices
 
 
-def remove_silence(seq, silence_placeholder):
+def remove_silence(seq: List[int], silence_placeholder: int) -> List[int]:
     """Remove silence placeholders from the sequence."""
     return [item for item in seq if item != silence_placeholder]
 
 
-def assign_correctness_values(pred_seq, true_seq, silence_placeholder):
-    collapsed_pred_seq, original_indices = collapse_sequence(pred_seq)
+def assign_correctness_values(
+    pred_seq: List[int], true_seq: List[int], silence_placeholder: int
+) -> List[str]:
+    if isinstance(pred_seq, torch.Tensor):
+        pred_seq = pred_seq.tolist()
+    if isinstance(true_seq, torch.Tensor):
+        true_seq = true_seq.tolist()
+
+    collapsed_pred_seq, _ = collapse_sequence(pred_seq)
     filtered_pred_seq = remove_silence(collapsed_pred_seq, silence_placeholder)
     matcher = difflib.SequenceMatcher(None, filtered_pred_seq, true_seq)
 
     correctness_values = ["" for _ in pred_seq]
 
     original_index = 0
-    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+    for tag, i1, i2, _, _ in matcher.get_opcodes():
         if tag == "equal":
             for i in range(i1, i2):
                 while (
@@ -99,7 +105,7 @@ def assign_correctness_values(pred_seq, true_seq, silence_placeholder):
                 ):
                     original_index += 1
                 if original_index < len(pred_seq):
-                    correctness_values[original_index] = "correct"
+                    correctness_values[original_index] = "C"
                     original_index += 1
         elif tag in ("replace", "delete", "insert"):
             for i in range(i1, i2):
@@ -110,19 +116,17 @@ def assign_correctness_values(pred_seq, true_seq, silence_placeholder):
                 ):
                     original_index += 1
                 if original_index < len(pred_seq):
-                    correctness_values[original_index] = "incorrect"
+                    correctness_values[original_index] = "I"
                     original_index += 1
 
     while original_index < len(pred_seq):
-        correctness_values[original_index] = (
-            "incorrect" if pred_seq[original_index] != silence_placeholder else "silence"
-        )
+        correctness_values[original_index] = "I" if pred_seq[original_index] != silence_placeholder else "S"
         original_index += 1
 
     for idx, value in enumerate(correctness_values):
         if value == "":
             correctness_values[idx] = correctness_values[idx - 1]
         if pred_seq[idx] == silence_placeholder:
-            correctness_values[idx] = "silence"
+            correctness_values[idx] = "S"
 
     return correctness_values

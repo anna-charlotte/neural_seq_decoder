@@ -87,24 +87,17 @@ class GRUDecoder(nn.Module):
 
         # stride/kernel
         stridedInputs = torch.permute(
-            self.unfolder(torch.unsqueeze(torch.permute(transformedNeural, (0, 2, 1)), 3)),
-            (0, 2, 1),
+            self.unfolder(torch.unsqueeze(torch.permute(transformedNeural, (0, 2, 1)), 3)), (0, 2, 1),
         )
 
         # apply RNN layer
         if self.bidirectional:
             h0 = torch.zeros(
-                self.layer_dim * 2,
-                transformedNeural.size(0),
-                self.hidden_dim,
-                device=self.device,
+                self.layer_dim * 2, transformedNeural.size(0), self.hidden_dim, device=self.device,
             ).requires_grad_()
         else:
             h0 = torch.zeros(
-                self.layer_dim,
-                transformedNeural.size(0),
-                self.hidden_dim,
-                device=self.device,
+                self.layer_dim, transformedNeural.size(0), self.hidden_dim, device=self.device,
             ).requires_grad_()
 
         hid, _ = self.gru_decoder(stridedInputs, h0.detach())

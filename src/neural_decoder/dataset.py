@@ -98,10 +98,12 @@ class PhonemeDataset(BaseDataset):
         kernel_len: int = 32,
         stride: int = 4,
         phoneme_cls: int = None,
+        filter_by: Dict[str, list] = {},
     ) -> None:
         self.kernel_len = kernel_len
         self.stride = stride
         self.phoneme_cls = phoneme_cls
+        self.filter_by = filter_by
         super().__init__(data, transform)
 
     def prepare_data(self) -> None:
@@ -110,28 +112,54 @@ class PhonemeDataset(BaseDataset):
 
         self.neural_windows = []
         self.phonemes = []
-        self.days = []
+        self.correctness_values = []
         self.logits = []
+        self.days = []
+        self.cers = []
 
         for day in range(self.n_days):
             for trial in range(len(self.data[day]["sentenceDat"])):
                 signal = self.data[day]["sentenceDat"][trial]
+                logits = logits = self.data[day]["logits"][trial]
+                correctness_vals = self.data[day]["correctness_values"][trial]
+                cer = self.data[day]["cer"][trial]
+
+                logits_len = self.data[day]["logitLengths"][trial]
+                logits = logits[:logits_len]
+
+                assert len(logits) == len(correctness_vals)
+
                 for i in range(0, signal.size(0) - self.kernel_len + 1, self.stride):
-                    logits = self.data[day]["logits"][trial][int(i / self.stride)]
-                    phoneme = np.argmax(logits)
-                    if self.phoneme_cls is None or self.phoneme_cls == phoneme:
+                    j = int(i / self.stride)
+                    logit = logits[j]
+                    correctness_val = correctness_vals[j]
+                    phoneme = np.argmax(logit).item()
+
+                    if (
+                        "phoneme_cls" not in self.filter_by.keys() or phoneme in self.filter_by["phoneme_cls"]
+                    ) and (
+                        "correctness_value" not in self.filter_by.keys()
+                        or correctness_val in self.filter_by["correctness_value"]
+                    ):
+                        self.correctness_values.append(correctness_val)
                         self.phonemes.append(phoneme)
-                        self.logits.append(logits)
+                        self.logits.append(logit)
                         window = signal[i : i + self.kernel_len]
+                        assert window.size(0) == self.kernel_len
                         self.neural_windows.append(window)
                         self.days.append(day)
+                        self.cers.append(cer)
 
         self.n_trials = len(self.phonemes)
 
     def __getitem__(self, idx) -> tuple:
-        neural_window = torch.tensor(self.neural_windows[idx], dtype=torch.float32)
+        neural_window = self.neural_windows[idx].clone().detach().float()
         phoneme = torch.tensor(self.phonemes[idx], dtype=torch.int32)
-        logits = torch.tensor(self.logits[idx], dtype=torch.float32)
+        logits = self.logits[idx]
+        if isinstance(logits, torch.Tensor):
+            logits = self.logits[idx].clone().detach().float()
+        elif isinstance(logits, np.ndarray):
+            logits = torch.from_numpy(self.logits[idx]).float()
 
         if self.transform:
             neural_window = self.transform(neural_window)
@@ -140,6 +168,7 @@ class PhonemeDataset(BaseDataset):
             neural_window,
             phoneme,
             logits,
+            # correctness_values
             torch.tensor(self.days[idx], dtype=torch.int64),
         )
 

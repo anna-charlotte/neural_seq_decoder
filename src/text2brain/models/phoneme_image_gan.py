@@ -1,31 +1,31 @@
-import argparse
-import os
-import pickle
-import random
-from pathlib import Path
-from typing import Dict, Union
+from typing import Optional
 
-import matplotlib.animation as animation
-import matplotlib.pyplot as plt
-import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.nn.parallel
 import torch.optim as optim
 import torch.utils.data
 
-from neural_decoder.dataset import PhonemeDataset
-from neural_decoder.neural_decoder_trainer import get_data_loader
-from neural_decoder.phoneme_utils import ROOT_DIR
-from text2brain.visualization import plot_brain_signal_animation
+
+def phonemes_to_signal(model, phonemes: list) -> torch.Tensor:
+    assert model.conditional == True
+
+    unique_phonemes = list(set(phonemes))
+    assert all(p in model.phoneme_cls for p in unique_phonemes)
+
+    signal = []
+    for p in phonemes:
+        s = model.generate(label=torch.tensor([p,]))
+        signal.append(s)
+
+    return torch.cat(signal, dim=1)
 
 
 class PhonemeImageGAN(nn.Module):
     def __init__(
         self,
         latent_dim: int,
-        phoneme_cls: Union[int, list],
+        phoneme_cls: Optional[list],
         n_channels: int,
         ndf: int,
         ngf: int,
@@ -40,6 +40,7 @@ class PhonemeImageGAN(nn.Module):
         else:
             self.conditional = False
 
+        self.phoneme_cls = phoneme_cls
         self.g = Generator(latent_dim, phoneme_cls, ngf).to(device)
         self.d = Discriminator(n_channels, phoneme_cls, ndf).to(device)
         self.device = device
@@ -86,6 +87,12 @@ class PhonemeImageGAN(nn.Module):
 
         return errD, errG
 
+    def generate(self, label):
+        self.g.eval()
+        noise = torch.randn(1, self.g.latent_dim, device=self.device)
+        gen_img = self.g(noise, label)
+        return gen_img
+
 
 class Generator(nn.Module):
     def __init__(self, latent_dim, phoneme_cls, ngf):
@@ -127,11 +134,6 @@ class Generator(nn.Module):
             gen_input = noise.view(noise.size(0), -1, 1, 1)
         output = self.model(gen_input)
         return output
-
-    def sample(self, label):
-        noise = torch.randn(1, self.g.latent_dim, device=self.device)
-        gen_img = self.g(noise, label)
-        return gen_img
 
 
 class Discriminator(nn.Module):

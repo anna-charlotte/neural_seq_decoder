@@ -25,10 +25,7 @@ def main(args: dict) -> None:
     batch_size = args["batch_size"]
 
     print("Get data loaders ...")
-    train_loader, test_loader, loaded_data = get_dataset_loaders(
-        args["dataset_path"],
-        batch_size,
-    )
+    train_loader, test_loader, loaded_data = get_dataset_loaders(args["dataset_path"], batch_size,)
 
     # Parameters
     input_dim = args["n_input_features"]
@@ -38,10 +35,7 @@ def main(args: dict) -> None:
 
     # Initialize the model, loss function, and optimizer
     model = TextToBrainGRU(
-        input_dim=input_dim,
-        hidden_dim=hidden_dim,
-        output_dim=output_dim,
-        n_layers=n_layers,
+        input_dim=input_dim, hidden_dim=hidden_dim, output_dim=output_dim, n_layers=n_layers,
     )
 
     args["model_class"] = model.__class__.__name__

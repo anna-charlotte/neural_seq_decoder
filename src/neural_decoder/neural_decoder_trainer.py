@@ -7,7 +7,7 @@ import hydra
 import numpy as np
 import torch
 from edit_distance import SequenceMatcher
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, WeightedRandomSampler
 
 from .dataset import PhonemeDataset, SpeechDataset, _padding
 from .model import GRUDecoder
@@ -20,30 +20,41 @@ def get_data_loader(
     collate_fn: callable,
     transform: callable = None,
     dataset_cls: Type[Any] = SpeechDataset,
-    phoneme_cls: int = None,
+    phoneme_ds_filter: dict = {},
+    class_weights=None,
 ) -> DataLoader:
     if dataset_cls == SpeechDataset:
         ds = SpeechDataset(data, transform=transform)
     elif dataset_cls == PhonemeDataset:
-        ds = PhonemeDataset(data, transform=transform, phoneme_cls=phoneme_cls)
+        ds = PhonemeDataset(data, transform=transform, filter_by=phoneme_ds_filter)
     else:
         raise ValueError(f"Given dataset_cls is not valid: {dataset_cls.__name__}")
+
+    sampler = None
+    if class_weights is not None:
+        all_y = ds.phonemes
+        sample_weights = class_weights[torch.tensor(all_y) - 1]
+        sampler = WeightedRandomSampler(
+            weights=sample_weights, num_samples=len(sample_weights), replacement=True
+        )
+
+    if class_weights is not None and shuffle:
+        raise ValueError("class_weights option is mutually exclusive with shuffle option.")
 
     dl = DataLoader(
         ds,
         batch_size=batch_size,
-        shuffle=shuffle,
+        # shuffle=shuffle,
         num_workers=0,
         pin_memory=True,
         collate_fn=collate_fn,
+        sampler=sampler,
     )
     return dl
 
 
 def get_dataset_loaders(
-    dataset_name: str,
-    batch_size: int,
-    dataset_cls: Type[Any] = SpeechDataset,
+    dataset_name: str, batch_size: int, dataset_cls: Type[Any] = SpeechDataset, phoneme_ds_filter: dict = {}
 ) -> Tuple[DataLoader, DataLoader, dict]:
     print("In get_dataset_loaders()")
     with open(dataset_name, "rb") as handle:
@@ -63,6 +74,7 @@ def get_dataset_loaders(
         shuffle=True,
         collate_fn=padding_fnc,
         dataset_cls=dataset_cls,
+        phoneme_ds_filter=phoneme_ds_filter,
     )
     test_dl = get_data_loader(
         data=loaded_data["test"],
@@ -70,6 +82,7 @@ def get_dataset_loaders(
         shuffle=True,
         collate_fn=padding_fnc,
         dataset_cls=dataset_cls,
+        phoneme_ds_filter=phoneme_ds_filter,
     )
 
     return train_dl, test_dl, loaded_data
@@ -84,20 +97,14 @@ def trainModel(args):
     with open(args["outputDir"] + "/args", "wb") as file:
         pickle.dump(args, file)
 
-    train_loader, test_loader, loaded_data = get_dataset_loaders(
-        args["datasetPath"],
-        args["batchSize"],
-    )
+    train_loader, test_loader, loaded_data = get_dataset_loaders(args["datasetPath"], args["batchSize"],)
     if "datasetPathSynthetic" in args.keys() and args["datasetPathSynthetic"] != "":
         dataset_name = args["datasetPathSynthetic"]
         with open(dataset_name, "rb") as handle:
             data = pickle.load(handle)
 
         synthetic_loader = get_data_loader(
-            data=data,
-            batch_size=args["batchSize"],
-            shuffle=True,
-            collate_fn=_padding,
+            data=data, batch_size=args["batchSize"], shuffle=True, collate_fn=_padding,
         )
         assert (
             0.0 <= args["proportionSynthetic"] <= 1.0
@@ -122,17 +129,10 @@ def trainModel(args):
 
     loss_ctc = torch.nn.CTCLoss(blank=0, reduction="mean", zero_infinity=True)
     optimizer = torch.optim.Adam(
-        model.parameters(),
-        lr=args["lrStart"],
-        betas=(0.9, 0.999),
-        eps=0.1,
-        weight_decay=args["l2_decay"],
+        model.parameters(), lr=args["lrStart"], betas=(0.9, 0.999), eps=0.1, weight_decay=args["l2_decay"],
     )
     scheduler = torch.optim.lr_scheduler.LinearLR(
-        optimizer,
-        start_factor=1.0,
-        end_factor=args["lrEnd"] / args["lrStart"],
-        total_iters=args["nBatch"],
+        optimizer, start_factor=1.0, end_factor=args["lrEnd"] / args["lrStart"], total_iters=args["nBatch"],
     )
 
     # --train--
@@ -206,8 +206,7 @@ def trainModel(args):
                     adjusted_lens = ((X_len - model.kernelLen) / model.strideLen).to(torch.int32)
                     for iterIdx in range(pred.shape[0]):
                         decoded_seq = torch.argmax(
-                            torch.tensor(pred[iterIdx, 0 : adjusted_lens[iterIdx], :]),
-                            dim=-1,
+                            torch.tensor(pred[iterIdx, 0 : adjusted_lens[iterIdx], :]), dim=-1,
                         )  # [num_seq,]
                         decoded_seq = torch.unique_consecutive(decoded_seq, dim=-1)
                         decoded_seq = decoded_seq.cpu().detach().numpy()

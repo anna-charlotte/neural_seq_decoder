@@ -15,6 +15,7 @@ from neural_decoder.neural_decoder_trainer import (
     get_dataset_loaders,
     loadModel,
 )
+from neural_decoder.phoneme_utils import assign_correctness_values
 
 
 def cer(logits: torch.Tensor, X_len: torch.Tensor, y: torch.Tensor, y_len: torch.Tensor):
@@ -24,8 +25,7 @@ def cer(logits: torch.Tensor, X_len: torch.Tensor, y: torch.Tensor, y_len: torch
     adjusted_lens = X_len
     for iterIdx in range(logits.shape[0]):
         decoded_seq = torch.argmax(
-            torch.tensor(logits[iterIdx, 0 : adjusted_lens[iterIdx], :]),
-            dim=-1,
+            torch.tensor(logits[iterIdx, 0 : adjusted_lens[iterIdx], :]), dim=-1,
         )  # [num_seq,]
         decoded_seq = torch.unique_consecutive(decoded_seq, dim=-1)
         decoded_seq = decoded_seq.cpu().detach().numpy()
@@ -62,7 +62,7 @@ def get_model_outputs(loaded_data: list[Dict], model, device: str) -> dict:
             )
 
             pred = model.forward(X, day)
-            adjusted_lens = ((X_len - model.kernelLen) / model.strideLen).to(torch.int32)
+            adjusted_lens = ((X_len - model.kernelLen) / model.strideLen).to(torch.int32) + 1
 
             for iterIdx in range(pred.shape[0]):
                 model_outputs["logits"].append(pred[iterIdx].cpu().detach().numpy())
@@ -95,9 +95,10 @@ def save_model_output(loaded_data: dict, model: nn.Module, device: str, out_file
     data = [
         {
             "sentenceDat": [],
-            "phonemes": [],
+            "phonemes": [],  # ground truth
+            "correctness_values": [],
             "phoneLens": [],
-            "logits": [],
+            "logits": [],  # predictions
             "logitLengths": [],
             "transcriptions": [],
             "cer": [],
@@ -117,27 +118,41 @@ def save_model_output(loaded_data: dict, model: nn.Module, device: str, out_file
                 y_len.to(device),
                 torch.tensor([dayIdx], dtype=torch.int64).to(device),
             )
-            data[dayIdx]["sentenceDat"].append(X[0].to("cpu"))
-            data[dayIdx]["phonemes"].append(y[0].to("cpu"))
-            data[dayIdx]["phoneLens"].append(y_len[0].item())
 
-            pred = model.forward(X, day)
-            adjusted_lens = ((X_len - model.kernelLen) / model.strideLen).to(torch.int32)
+            adjusted_lens = ((X_len - model.kernelLen) / model.strideLen).to(torch.int32) + 1
 
-            pred = pred.to("cpu")
+            pred = model.forward(X, day).to("cpu")
+            pred_indices = torch.argmax(pred, dim=2)[:, :adjusted_lens]
+
             for iterIdx in range(pred.shape[0]):
-                data[dayIdx]["logits"].append(pred[iterIdx].cpu().detach().numpy())
+                data[dayIdx]["sentenceDat"].append(X[iterIdx].cpu().detach())
+                phonemes = y[iterIdx].cpu().detach()
+                data[dayIdx]["phonemes"].append(phonemes)
+                data[dayIdx]["phoneLens"].append(y_len[iterIdx].item())
+
+                logits = pred[iterIdx].cpu().detach()
+                data[dayIdx]["logits"].append(logits)
                 data[dayIdx]["logitLengths"].append(adjusted_lens[iterIdx].cpu().detach().item())
 
-            transcript = loaded_data[dayIdx]["transcriptions"][j]
+                correctness_values = assign_correctness_values(
+                    pred_seq=pred_indices[iterIdx], true_seq=y[iterIdx], silence_placeholder=0,
+                )
+                data[dayIdx]["correctness_values"].append(correctness_values)
+                assert len(correctness_values) == len(
+                    logits
+                ), f"len(correctness_values) = {len(correctness_values)}, len(logits) = {len(logits)}"
 
-            data[dayIdx]["transcriptions"].append(transcript)
-            data[dayIdx]["cer"].append(cer(pred, adjusted_lens, y, y_len))
+                transcript = loaded_data[dayIdx]["transcriptions"][j]
+
+                data[dayIdx]["transcriptions"].append(transcript)
+                cer_value = cer(pred, adjusted_lens, y, y_len)
+
+                data[dayIdx]["cer"].append(cer_value)
 
     # Logits have different length
-    maxL_logit_length = max([l.shape[0] for l in data[dayIdx]["logits"]])
+    max_logit_length = max([l.shape[0] for l in data[dayIdx]["logits"]])
     data[dayIdx]["logits"] = [
-        np.pad(l, [[0, maxL_logit_length - l.shape[0]], [0, 0]]) for l in data[dayIdx]["logits"]
+        np.pad(l, [[0, max_logit_length - l.shape[0]], [0, 0]]) for l in data[dayIdx]["logits"]
     ]
     data[dayIdx]["logits"] = np.stack(data[dayIdx]["logits"], axis=0)
     data[dayIdx]["logitLengths"] = np.array(data[dayIdx]["logitLengths"])
@@ -166,20 +181,14 @@ def evaluate(ngram_decoder, model_test_outputs, model_holdOut_outputs, outputFil
 
     print("\nDecoding Test...\n", flush=True)
     decoder_out_test = lmDecoderUtils.cer_with_lm_decoder(
-        ngram_decoder,
-        model_test_outputs,
-        outputType="speech_sil",
-        blankPenalty=np.log(2),
+        ngram_decoder, model_test_outputs, outputType="speech_sil", blankPenalty=np.log(2),
     )
 
     print(f"\n-------- WER: {decoder_out_test['wer']:.3f} --------\n", flush=True)
 
     print("\nDecoding HoldOut...\n", flush=True)
     decoder_out_holdOut = lmDecoderUtils.cer_with_lm_decoder(
-        ngram_decoder,
-        model_holdOut_outputs,
-        outputType="speech_sil",
-        blankPenalty=np.log(2),
+        ngram_decoder, model_holdOut_outputs, outputType="speech_sil", blankPenalty=np.log(2),
     )
 
     filename = f"{outputFilePath}_cer_{decoder_out_test['cer']:.3f}_wer_{decoder_out_test['wer']:.3f}.txt"
@@ -192,7 +201,7 @@ def evaluate(ngram_decoder, model_test_outputs, model_holdOut_outputs, outputFil
 
 if __name__ == "__main__":
     save_output = True
-    eval_model = True
+    eval_model = False
 
     base_dir = root_directory = os.environ["DATA"] + "/willett2023"
 
@@ -224,17 +233,11 @@ if __name__ == "__main__":
         save_model_output(loaded_data=loaded_data["test"], model=model, device=device, out_file=file)
 
     if eval_model:
-        model_test_outputs = get_model_outputs(
-            loaded_data=loaded_data["test"],
-            model=model,
-            device=device,
-        )
+        model_test_outputs = get_model_outputs(loaded_data=loaded_data["test"], model=model, device=device,)
         print("Test raw CER: ", np.mean(model_test_outputs["cer"]), flush=True)
 
         model_holdOut_outputs = get_model_outputs(
-            loaded_data=loaded_data["competition"],
-            model=model,
-            device=device,
+            loaded_data=loaded_data["competition"], model=model, device=device,
         )
 
         test_out_path = model_out_path + "_test.pkl"

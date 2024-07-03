@@ -1,3 +1,5 @@
+"""Iterate over all phoneme classes, load PhonemeDataset and plot the distribution of logits, and probabilities of this phoneme."""
+
 import pickle
 import random
 
@@ -33,40 +35,39 @@ def main(args: dict) -> None:
         with open(train_file, "rb") as handle:
             train_data = pickle.load(handle)
 
+        filter_by = {}
+        if isinstance(phoneme_cls, int):
+            filter_by = {"phoneme_cls": phoneme_cls}
+
         train_dl = get_data_loader(
             data=train_data,
             batch_size=batch_size,
             shuffle=True,
             collate_fn=None,
             dataset_cls=PhonemeDataset,
-            phoneme_cls=phoneme_cls if isinstance(phoneme_cls, int) else None,
+            phoneme_ds_filter=filter_by,
         )
         train_ds = train_dl.dataset
         print(f"len(train_ds) = {len(train_ds)}")
         all_logits_for_phoneme = []
         all_probabilities = []
         for batch in train_ds:
-            _, _, logits, _= batch
+            _, _, logits, _ = batch
             probabilities = softmax(logits)
             assert phoneme_cls == torch.argmax(logits).item()
             logit = logits[phoneme_cls].item()
             all_logits_for_phoneme.append(logit)
 
             prob = probabilities[phoneme_cls]
-            # print()
-            # print(logit)
-            # print(sum(logits))
-            # print(prob)
-            # print(probabilities)
             all_probabilities.append(prob)
 
-        # print(all_logits_for_phoneme)
-
         plt.figure(figsize=(10, 6))
-        plt.hist(all_logits_for_phoneme, bins=40, edgecolor='black')
-        plt.title(f'Distribution of Logit Values (B2T RNN) for Phoneme {phoneme_cls} (total counts = {len(all_logits_for_phoneme)})')
-        plt.xlabel('Logit Values')
-        plt.ylabel('Frequency')
+        plt.hist(all_logits_for_phoneme, bins=40, edgecolor="black")
+        plt.title(
+            f"Distribution of Logit Values (B2T RNN) for Phoneme {phoneme_cls} (total counts = {len(all_logits_for_phoneme)})"
+        )
+        plt.xlabel("Logit Values")
+        plt.ylabel("Frequency")
         plt.xlim(left=0)
         plt.xlim(right=1)
         plt.grid(True)
@@ -74,10 +75,12 @@ def main(args: dict) -> None:
         plt.savefig(ROOT_DIR / "plots" / "phoneme_distr_logits" / f"logits_phoneme_{phoneme_cls}.png")
 
         plt.figure(figsize=(10, 6))
-        plt.hist(all_probabilities, bins=40, edgecolor='black')
-        plt.title(f'Distribution of Probabilitiy Values (B2T RNN) for Phoneme {phoneme_cls} (total counts = {len(all_probabilities)})')
-        plt.xlabel('Probabilities Values')
-        plt.ylabel('Frequency')
+        plt.hist(all_probabilities, bins=40, edgecolor="black")
+        plt.title(
+            f"Distribution of Probabilitiy Values (B2T RNN) for Phoneme {phoneme_cls} (total counts = {len(all_probabilities)})"
+        )
+        plt.xlabel("Probabilities Values")
+        plt.ylabel("Frequency")
         plt.xlim(left=0)
         plt.xlim(right=1)
         plt.grid(True)
@@ -90,12 +93,12 @@ if __name__ == "__main__":
     args = {}
     args["seed"] = 0
     args["device"] = "cuda"
-    args["train_set_path"] = (
-        "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
-    )
-    args["test_set_path"] = (
-        "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
-    )
+    args[
+        "train_set_path"
+    ] = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
+    args[
+        "test_set_path"
+    ] = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
     # args["output_dir"] = "/data/engs-pnpl/lina4471/synthetic_data_willett2023/simple_rnn"
     args["batch_size"] = 8
     args["n_input_features"] = 41

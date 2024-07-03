@@ -10,9 +10,7 @@ import torch.nn.functional as F
 class TextToBrainInterface(ABC):
     @abstractmethod
     def train_one_epoch(
-        self,
-        text: torch.Tensor,
-        brain_signal: torch.Tensor,
+        self, text: torch.Tensor, brain_signal: torch.Tensor,
     ):
         raise NotImplementedError
 

@@ -1,19 +1,10 @@
-import argparse
-import os
 import pickle
 import random
 from pathlib import Path
-from typing import Dict, Union
 
-import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.nn.parallel
-import torch.optim as optim
-import torch.utils.data
 
 from neural_decoder.dataset import PhonemeDataset
 from neural_decoder.neural_decoder_trainer import get_data_loader
@@ -31,12 +22,16 @@ def main(args: dict) -> None:
 
     device = args["device"]
     batch_size = args["batch_size"]
-    phoneme_cls = 4
+    phoneme_cls = [i for i in range(41)]
     print(f"device = {device}")
 
     train_file = args["train_set_path"]
     with open(train_file, "rb") as handle:
         train_data = pickle.load(handle)
+
+    filter_by = {}
+    if isinstance(phoneme_cls, int):
+        filter_by = {"phoneme_cls": phoneme_cls}
 
     train_dl = get_data_loader(
         data=train_data,
@@ -44,7 +39,7 @@ def main(args: dict) -> None:
         shuffle=True,
         collate_fn=None,
         dataset_cls=PhonemeDataset,
-        phoneme_cls=phoneme_cls if isinstance(phoneme_cls, int) else None,
+        phoneme_ds_filter=filter_by,
     )
 
     print(f"len(train_dl.dataset) = {len(train_dl.dataset)}")
@@ -59,15 +54,8 @@ def main(args: dict) -> None:
         shuffle=False,
         collate_fn=None,
         dataset_cls=PhonemeDataset,
-        phoneme_cls=phoneme_cls if isinstance(phoneme_cls, int) else None,
+        phoneme_ds_filter=filter_by,
     )
-    print(f"len(test_dl.dataset) = {len(test_dl.dataset)}")
-
-    # plot_brain_signal_animation(
-    #     signal=signal,
-    #     save_path=ROOT_DIR / "plots"/ "data_visualization" / f"phone_{phoneme}_FAKE_ep{epoch}_i_{i}.gif" ,
-    #     title=f"Phoneme {phoneme}, Frame"
-    # )
 
     n_channels = 32
     latent_dim = 100
@@ -76,7 +64,7 @@ def main(args: dict) -> None:
     ndf = 64
 
     n_epochs = 50
-    lr = 0.00005
+    lr = 0.0001
     clip_value = 0.01
     n_critic = 15
 
@@ -91,8 +79,6 @@ def main(args: dict) -> None:
         clip_value=clip_value,
         lr=lr,
     )
-    print(f"gan.g = {gan.g}")
-    print(f"gan.d = {gan.d}")
 
     G_losses = []
     D_losses = []
@@ -102,24 +88,40 @@ def main(args: dict) -> None:
         for i, data in enumerate(train_dl):
             errD, errG = gan(data)
 
-            # Output training stats
+            # output training stats
             if i % 250 == 0:
                 print(
                     f"[{epoch}/{n_epochs}][{i}/{len(train_dl)}] Loss_D: {errD.item()} Loss_G: {errG.item()}"
                 )
 
-                phoneme = 2
-                signal = gan.g(noise_vector, torch.tensor([phoneme]).to(device))
-                plot_brain_signal_animation(
-                    signal=signal,
-                    save_path=ROOT_DIR
-                    / "plots"
-                    / "data_visualization"
-                    / f"phone_{phoneme}_FAKE_ep{epoch}_i_{i}.gif",
-                    title=f"Phoneme {phoneme}, Frame",
-                )
+            #     phoneme = 2
+            #     signal = gan.g(noise_vector, torch.tensor([phoneme]).to(device))
+            #     plot_brain_signal_animation(
+            #         signal=signal,
+            #         save_path=ROOT_DIR
+            #         / "plots"
+            #         / "data_visualization"
+            #         / f"phone_{phoneme}_FAKE_ep{epoch}_i_{i}.gif",
+            #         title=f"Phoneme {phoneme}, Frame",
+            #     )
 
-            # Save Losses for plotting later
+            # if i == 0:
+            #     X, _, _, _ = data
+
+            #     phoneme = 2
+            #     for j in range(X.size(0)):
+            #         sub_signal = X[j, :, :]
+            #         print(sub_signal.size())
+            #         plot_brain_signal_animation(
+            #             signal=sub_signal,
+            #             save_path=ROOT_DIR
+            #             / "plots"
+            #             / "data_visualization"
+            #             / f"phone_{phoneme}_REAL_sample_{j}.gif",
+            #             title=f"Real sample, Phoneme {phoneme}, Frame",
+            #         )
+
+            # save losses for plotting
             G_losses.append(errG.item())
             D_losses.append(errD.item())
 
@@ -142,12 +144,12 @@ if __name__ == "__main__":
     args = {}
     args["seed"] = 0
     args["device"] = "cuda"
-    args["train_set_path"] = (
-        "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
-    )
-    args["test_set_path"] = (
-        "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
-    )
+    args[
+        "train_set_path"
+    ] = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
+    args[
+        "test_set_path"
+    ] = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
     # args["output_dir"] = "/data/engs-pnpl/lina4471/synthetic_data_willett2023/simple_rnn"
     args["batch_size"] = 8
     args["n_input_features"] = 41
