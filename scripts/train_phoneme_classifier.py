@@ -119,7 +119,7 @@ def train_model(
             X, y, logits, dayIdx = (X.to(device), y.to(device), logits.to(device), dayIdx.to(device))
             optimizer.zero_grad()
             # X = X.view(train_dl.batch_size, 32, 16, 16)
-            X = X.view(train_dl.batch_size, 128, 8, 8)
+            X = X.view(X.size(0), 128, 8, 8)
             pred = model(X)
 
             loss = criterion(pred, y.long())
@@ -245,7 +245,7 @@ def main(args: dict) -> None:
     train_file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
     with open(train_file, "rb") as handle:
         data = pickle.load(handle)
-
+    
     # fmt: off
     class_counts = [
         4841, 7058, 27635, 3298, 2566, 7524, 4674, 2062, 11389, 9501,
@@ -256,8 +256,14 @@ def main(args: dict) -> None:
     # fmt: on
 
     # Calculate weights for each class
-    class_weights = 1.0 / np.sqrt(np.array(class_counts))
-    class_weights = torch.tensor(class_weights, dtype=torch.float32)
+    if args["class_weights"] == "sqrt":
+        class_weights = 1.0 / np.sqrt(np.array(class_counts))
+        class_weights = torch.tensor(class_weights, dtype=torch.float32)
+    elif args["class_weights"] == "inv":
+        class_weights = 1.0 / np.array(class_counts)
+        class_weights = torch.tensor(class_weights, dtype=torch.float32)
+    else:
+        class_weights = None
 
     train_dl = get_data_loader(
         data=data,
@@ -280,6 +286,7 @@ def main(args: dict) -> None:
         collate_fn=None,
         dataset_cls=PhonemeDataset,
         phoneme_ds_filter={"correctness_value": ["C"], "phoneme_cls": list(range(1, 40))},
+        class_weights=None
     )
 
     n_classes = 39
@@ -328,6 +335,7 @@ if __name__ == "__main__":
             args["generative_model_path"] = "/data/engs-pnpl/lina4471/willett2023/"
             args["lr"] = lr
             args["batch_size"] = batch_size
+            args["class_weights"] = "sqrt"
 
             # args["n_input_features"] = 41
             # args["n_output_features"] = 256
