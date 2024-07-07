@@ -44,7 +44,7 @@ def get_data_loader(
     dl = DataLoader(
         ds,
         batch_size=batch_size,
-        # shuffle=shuffle,
+        shuffle=shuffle,
         num_workers=0,
         pin_memory=True,
         collate_fn=collate_fn,
@@ -96,6 +96,8 @@ def trainModel(args):
 
     with open(args["outputDir"] + "/args", "wb") as file:
         pickle.dump(args, file)
+    with open(args["outputDir"] / "args.json", "w") as file:
+        json.dump(args, file, indent=4)
 
     train_loader, test_loader, loaded_data = get_dataset_loaders(args["datasetPath"], args["batchSize"],)
     if "datasetPathSynthetic" in args.keys() and args["datasetPathSynthetic"] != "":
@@ -238,6 +240,8 @@ def trainModel(args):
 
             with open(args["outputDir"] + "/trainingStats", "wb") as file:
                 pickle.dump(t_stats, file)
+            with open(args["outputDir"] / "trainingStats.json", "w") as file:
+                json.dump(args, file, indent=4)
 
 
 def loadModel(modelDir, nInputLayers=24, device="cuda"):

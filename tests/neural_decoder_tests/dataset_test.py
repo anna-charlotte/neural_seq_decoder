@@ -58,7 +58,7 @@ def test_phoneme_speech_dataset_filter_phoneme_cls():
         shuffle=False,
         collate_fn=None,
         dataset_cls=PhonemeDataset,
-        phoneme_ds_filter={"phoneme_cls": 2},
+        phoneme_ds_filter={"phoneme_cls": [2]},
     )
     assert len(dl.dataset) == 7237
 

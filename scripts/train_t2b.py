@@ -1,3 +1,4 @@
+import json
 import os
 import pickle
 from pathlib import Path
@@ -45,6 +46,8 @@ def main(args: dict) -> None:
     with open(args_file, "wb") as file:
         print(f"Write args to: {args_file}")
         pickle.dump(args, file)
+    with open(model_dir / "args.json", "w") as file:
+        json.dump(args, file, indent=4)
 
     model = load_text2brain_model(model_dir=model_dir)
     min_loss = float("inf")

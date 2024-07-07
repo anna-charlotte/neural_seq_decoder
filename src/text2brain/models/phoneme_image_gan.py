@@ -1,10 +1,16 @@
+import pickle
+from pathlib import Path
 from typing import Optional
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.parallel
 import torch.optim as optim
 import torch.utils.data
+from tqdm import tqdm
+
+from neural_decoder.dataset import SyntheticPhonemeDataset
 
 
 def phonemes_to_signal(model, phonemes: list) -> torch.Tensor:
@@ -16,6 +22,7 @@ def phonemes_to_signal(model, phonemes: list) -> torch.Tensor:
     signal = []
     for p in phonemes:
         s = model.generate(label=torch.tensor([p,]))
+        s = s.view(1, 32, 16, 16)
         signal.append(s)
 
     return torch.cat(signal, dim=1)
@@ -33,6 +40,7 @@ class PhonemeImageGAN(nn.Module):
         n_critic: int = 5,
         clip_value: float = 0.01,
         lr=1e-4,
+        transform=None,
     ):
         super(PhonemeImageGAN, self).__init__()
         if isinstance(phoneme_cls, list):
@@ -41,12 +49,18 @@ class PhonemeImageGAN(nn.Module):
             self.conditional = False
 
         self.phoneme_cls = phoneme_cls
+        if isinstance(self.phoneme_cls, int):
+            self.n_classes = 1
+        elif isinstance(self.phoneme_cls, list):
+            self.n_classes = len(self.phoneme_cls)
+
         self.g = Generator(latent_dim, phoneme_cls, ngf).to(device)
         self.d = Discriminator(n_channels, phoneme_cls, ndf).to(device)
         self.device = device
         self.n_critic = n_critic
         self.clip_value = clip_value
         self.lr = lr
+        self.transform = transform
 
         self.g.apply(self._weights_init)
         self.d.apply(self._weights_init)
@@ -64,11 +78,10 @@ class PhonemeImageGAN(nn.Module):
         y = y.to(self.device)
         X_real = X_real.to(self.device)
         # X_real = X_real.view(X_real.size(0), X_real.size(1), 16, 16)
-        print(f"X_real.size() = {X_real.size()}")
         X_real = X_real.view(-1, 128, 8, 8)
-        print(f"X_real.size() = {X_real.size()}")
         if isinstance(self.phoneme_cls, list) and len(self.phoneme_cls) < 41:
-            y = y - 1
+            # y = y - 1
+            y = _get_indices_in_classes(y, torch.tensor(self.phoneme_cls, device=y.device))
 
         for _ in range(self.n_critic):
             self.d.zero_grad()
@@ -93,11 +106,74 @@ class PhonemeImageGAN(nn.Module):
 
         return errD, errG
 
-    def generate(self, label):
+    def generate(self, label: torch.Tensor):
         self.g.eval()
         noise = torch.randn(1, self.g.latent_dim, device=self.device)
-        gen_img = self.g(noise, label)
+        gen_img = self.g(noise, label.to(self.device))
+        if self.transform is not None:
+            gen_img = self.transform(gen_img)
         return gen_img
+
+    def create_synthetic_phoneme_dataset(
+        self, n_samples, label_distribution: list = None, neural_window_shape: tuple = (128, 8, 8)
+    ):
+        assert isinstance(neural_window_shape, tuple)
+
+        classes = self.phoneme_cls
+        if isinstance(classes, int):
+            classes = [classes]
+
+        if label_distribution is None:
+            label_distribution = [1.0 / len(classes)] * len(classes)
+
+        assert len(label_distribution) == len(classes), "Label distribution must match the number of classes"
+        assert np.isclose(sum(label_distribution), 1.0), "Label distribution must sum to 1"
+
+        neural_windows = []
+        phoneme_labels = []
+
+        for _ in tqdm(range(n_samples), desc="Creating synthetic phoneme dataset with {n_samples} samples"):
+            phoneme_cls = np.random.choice(classes, p=label_distribution)
+            label = torch.tensor(phoneme_cls).unsqueeze(dim=0)
+
+            neural_window = self.generate(label=label)
+            neural_window = neural_window.view(neural_window.size(0), *neural_window_shape)
+
+            neural_windows.append(neural_window.to("cpu"))
+            phoneme_labels.append(torch.tensor(phoneme_cls, device="cpu"))
+
+        return SyntheticPhonemeDataset(neural_windows, phoneme_labels)
+
+    def save_state_dict(self, path: str):
+        print(f"Store model state dict to: {path}")
+        torch.save(self.state_dict(), path)
+
+    @classmethod
+    def load_model(cls, args_path: Path, weights_path: Path):
+        with open(args_path, "rb") as file:
+            args = pickle.load(file)
+
+        print(f"\nargs = {args}")
+        phoneme_cls = args["phoneme_cls"]
+        if "phoneme_cls" in args["phoneme_ds_filter"].keys():
+            phoneme_cls = args["phoneme_ds_filter"]["phoneme_cls"]
+
+        model = cls(
+            latent_dim=args["latent_dim"],
+            phoneme_cls=phoneme_cls,
+            n_channels=args["n_channels"],
+            ndf=args["ndf"],
+            ngf=args["ngf"],
+            device=args["device"],
+            n_critic=5 if "n_critic" not in args.keys() else args["n_critic"],
+            clip_value=0.01 if "clip_value" not in args.keys() else args["clip_value"],
+            lr=1e-4 if "clip_value" not in args.keys() else args["clip_value"],
+        )
+        model.load_state_dict(torch.load(weights_path))
+        # with open(weights_path, "rb") as file:
+        # model.load_state_dict(torch.load(file))
+
+        return model
 
 
 class Generator(nn.Module):
@@ -147,6 +223,9 @@ class Generator(nn.Module):
         )
 
     def forward(self, noise, labels):
+        labels = _get_indices_in_classes(labels, torch.tensor(self.phoneme_cls, device=labels.device)).to(
+            labels.device
+        )
         if self.conditional:
             labels = self.label_emb(labels)
             gen_input = torch.cat((noise, labels), -1)
@@ -155,6 +234,17 @@ class Generator(nn.Module):
             gen_input = noise.view(noise.size(0), -1, 1, 1)
         output = self.model(gen_input)
         return output
+
+
+def _get_indices_in_classes(labels, classes):
+    indices = []
+    for label in labels:
+        index = torch.where(classes == label)[0]
+        indices.append(index)
+        if not index.numel() > 0:
+            raise ValueError("Invalid label given!")
+
+    return torch.tensor(indices).int()
 
 
 class Discriminator(nn.Module):
@@ -209,7 +299,6 @@ class Discriminator(nn.Module):
             nn.Conv2d(ndf * 8, 1, 1, 1, 0, bias=False),
             # output. 1 x 1 x 1
         )
-
 
     def forward(self, img, labels):
         if self.conditional:

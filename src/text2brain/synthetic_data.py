@@ -40,3 +40,5 @@ def save_synthetic_data(
 
     with open(dir_path / "args", "wb") as handle:
         pickle.dump(args, handle)
+    with open(dir_path / "args.json", "w") as file:
+        json.dump(args, file, indent=4)

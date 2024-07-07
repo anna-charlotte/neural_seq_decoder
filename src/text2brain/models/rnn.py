@@ -56,7 +56,7 @@ class TextToBrainGRU(TextToBrainInterface):
     def __init__(self, input_dim, hidden_dim, output_dim, n_layers=1):
         super(TextToBrainGRU, self).__init__()
         self.model = RNN(input_dim, hidden_dim, output_dim, n_layers)
-        self.criterion = nn.MSELoss()
+        self.criterion = nn.CTCLoss(blank=0, reduction="mean", zero_infinity=True)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.001)
 
     def forward(self, x: torch.Tensor, dayIdx: torch.Tensor) -> torch.Tensor:
@@ -72,9 +72,17 @@ class TextToBrainGRU(TextToBrainInterface):
     ) -> dict:
         self.model.train()
         output = self.model(X, dayIdx)
-        y_pred, y_true = pad_to_match(output, y)
+        # y_pred, y_true = pad_to_match(output, y)
+        y_pred = output
+        y_true = y
+        y_pred_len = torch.full((y_pred.size(0),), y_pred.size(1))
+        print(f"\ny_pred.size() = {y_pred.size()}")
+        print(f"y_true.size() = {y_true.size()}")
+        print(f"y_len.size() = {y_len.size()}")
+        print(f"y_pred_len.size() = {y_pred_len.size()}")
 
-        loss = self.criterion(y_pred, y_true)
+        loss = self.criterion(y_pred, y_true, y_pred_len.to(torch.int32), y_len,)
+        loss = torch.sum(loss)
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()

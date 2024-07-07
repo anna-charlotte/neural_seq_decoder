@@ -174,3 +174,36 @@ class PhonemeDataset(BaseDataset):
 
     def __len__(self) -> int:
         return self.n_trials
+
+
+class SyntheticPhonemeDataset(BaseDataset):
+    def __init__(self, neural_windows: list, phoneme_labels: list, transform: callable = None,) -> None:
+        self.neural_windows = neural_windows
+        self.phonemes = phoneme_labels
+
+        super().__init__({}, transform)
+
+    def prepare_data(self) -> None:
+        self.n_trials = len(self.phonemes)
+
+        self.logits = [torch.tensor(float("inf")) for _ in range(self.n_trials)]
+        self.days = [-1 for _ in range(self.n_trials)]
+
+    def __getitem__(self, idx) -> tuple:
+        neural_window = self.neural_windows[idx].clone().detach().float()
+        phoneme = self.phonemes[idx].clone().detach().int()
+        logits = self.logits[idx].clone().detach().float()
+        day = torch.tensor(self.days[idx], dtype=torch.int64)
+
+        if self.transform:
+            neural_window = self.transform(neural_window)
+
+        return (
+            neural_window,
+            phoneme,
+            logits,
+            day,
+        )
+
+    def __len__(self) -> int:
+        return self.n_trials

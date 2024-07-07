@@ -19,9 +19,5 @@ class TextToBrainInterface(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def save_weights(self, file_path: Path):
-        raise NotImplementedError
-
-    @abstractmethod
     def load_weights(self, file_path: Path) -> None:
         raise NotImplementedError

@@ -1,5 +1,7 @@
+import json
 import pickle
 import random
+from collections import Counter
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -12,85 +14,16 @@ import torch.optim as optim
 from sklearn.metrics import confusion_matrix, roc_auc_score
 from torch.utils.data import DataLoader
 
+from neural_decoder.dataloader import MergedDataLoader
 from neural_decoder.dataset import PhonemeDataset
+from neural_decoder.model_phoneme_classifier import PhonemeClassifier
 from neural_decoder.neural_decoder_trainer import get_data_loader
-from neural_decoder.phoneme_utils import ROOT_DIR
-
-# # 32 * 16 * 16
-# class PhonemeClassifier(nn.Module):
-#     def __init__(self, n_classes: int):
-#         super(PhonemeClassifier, self).__init__()
-#         # self.model =
-#         self.conv1 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
-#         self.conv2 = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1)
-#         self.conv3 = nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1)
-#         self.fc1 = nn.Linear(256 * 2 * 2, 512)
-#         self.fc2 = nn.Linear(512, n_classes)
-
-#     def forward(self, x):
-#         # output = self.model(X)
-#         # return oputput
-#         x = F.relu(self.conv1(x))
-#         x = F.max_pool2d(x, 2, 2)
-#         x = F.relu(self.conv2(x))
-#         x = F.max_pool2d(x, 2, 2)
-#         x = F.relu(self.conv3(x))
-#         x = F.max_pool2d(x, 2, 2)
-#         x = x.view(-1, 256 * 2 * 2)
-#         x = F.relu(self.fc1(x))
-#         x = self.fc2(x)
-#         return x
-
-
-# 128 * 8 * 8
-# class PhonemeClassifier(nn.Module):
-#     def __init__(self, n_classes: int):
-#         super(PhonemeClassifier, self).__init__()
-#         self.conv1 = nn.Conv2d(in_channels=128, out_channels=64, kernel_size=3, stride=1, padding=1)
-#         self.conv2 = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1)
-#         self.conv3 = nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1)
-#         self.fc1 = nn.Linear(256 * 1 * 1, 512)
-#         self.fc2 = nn.Linear(512, n_classes)
-
-#     def forward(self, x):
-#         x = F.relu(self.conv1(x))
-#         x = F.max_pool2d(x, 2, 2)
-#         x = F.relu(self.conv2(x))
-#         x = F.max_pool2d(x, 2, 2)
-#         x = F.relu(self.conv3(x))
-#         x = F.max_pool2d(x, 2, 2)
-#         x = x.view(-1, 256 * 1 * 1)
-#         x = F.relu(self.fc1(x))
-#         x = self.fc2(x)
-#         return x
-class PhonemeClassifier(nn.Module):
-    def __init__(self, n_classes: int):
-        super(PhonemeClassifier, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels=128, out_channels=64, kernel_size=3, stride=1, padding=1)
-        self.bn1 = nn.BatchNorm2d(64)
-        self.conv2 = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1)
-        self.bn2 = nn.BatchNorm2d(128)
-        self.conv3 = nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1)
-        self.bn3 = nn.BatchNorm2d(256)
-        self.fc1 = nn.Linear(256 * 1 * 1, 512)
-        self.bn_fc1 = nn.BatchNorm1d(512)
-        self.fc2 = nn.Linear(512, n_classes)
-
-    def forward(self, x):
-        x = F.relu(self.bn1(self.conv1(x)))
-        x = F.max_pool2d(x, 2, 2)
-        x = F.relu(self.bn2(self.conv2(x)))
-        x = F.max_pool2d(x, 2, 2)
-        x = F.relu(self.bn3(self.conv3(x)))
-        x = F.max_pool2d(x, 2, 2)
-        x = x.view(x.size(0), -1)
-        x = F.relu(self.bn_fc1(self.fc1(x)))
-        x = self.fc2(x)
-        return x
+from neural_decoder.phoneme_utils import PHONE_DEF, ROOT_DIR
+from text2brain.models import PhonemeImageGAN
 
 
 def train_model(
-    model: nn.Module,
+    model: PhonemeClassifier,
     train_dl: DataLoader,
     test_dl: DataLoader,
     n_classes: int,
@@ -101,15 +34,18 @@ def train_model(
     n_epochs: int,
     patience: int,
 ) -> dict:
+    print("Train model ...")
     best_auroc = 0.0
+    best_test_acc = 0.0
     count_patience = 0
     all_train_losses = []
     all_test_losses = []
     all_test_aurocs_macro = []
     all_test_aurocs_micro = []
+    time_steps = []
 
-    for i in range(n_epochs):
-        for j, data in enumerate(train_dl):
+    for i_epoch in range(n_epochs):
+        for j_batch, data in enumerate(train_dl):
             model.train()
 
             X, y, logits, dayIdx = data
@@ -127,7 +63,7 @@ def train_model(
             optimizer.step()
             all_train_losses.append(loss.item())
 
-            if j > 0 and j % 50 == 0:
+            if j > 0 and j % 100 == 0:
                 print("Eval ...")
                 # evaluate
                 model.eval()
@@ -136,6 +72,8 @@ def train_model(
                 total = 0
                 all_preds = []
                 all_labels = []
+                class_correct = np.zeros(n_classes)
+                class_total = np.zeros(n_classes)
 
                 with torch.no_grad():
                     for batch in test_dl:
@@ -164,9 +102,17 @@ def train_model(
                         all_preds.append(probs.cpu())
                         all_labels.append(y.cpu())
 
+                        for label, prediction in zip(y, pred_labels):
+                            if label == prediction:
+                                class_correct[label] += 1
+                            class_total[label] += 1
+
                 all_test_losses.append(test_loss)
-            
+
                 test_acc = correct / total
+                class_accuracies = class_correct / class_total
+                for n, acc in enumerate(class_accuracies):
+                    print(f'Test accuracy for phoneme class {n} ("{PHONE_DEF[n]}"): \t{acc:.4f}')
 
                 all_preds = torch.cat(all_preds, dim=0)
                 all_labels = torch.cat(all_labels, dim=0)
@@ -178,60 +124,109 @@ def train_model(
 
                 # Calculate the AUROC
                 test_auroc_macro = roc_auc_score(
-                    all_labels_np, all_preds_np, multi_class="ovr", average='macro'
+                    all_labels_np, all_preds_np, multi_class="ovr", average="macro"
                 )
                 all_test_aurocs_macro.append(test_auroc_macro)
-                
+
                 test_auroc_micro = roc_auc_score(
-                    all_labels_np, all_preds_np, multi_class="ovr", average='micro'
+                    all_labels_np, all_preds_np, multi_class="ovr", average="micro"
                 )
                 all_test_aurocs_micro.append(test_auroc_micro)
                 print(
-                    f"Epoch: {i}, batch: {j}, test AUROC macro: {test_auroc_macro:.4f}, test AUROC micro: {test_auroc_micro:.4f}, test accuracy: {test_acc:.4f}, test_loss: {test_loss:.4f}"
+                    f"Epoch: {i_epoch}, batch: {j_batch}, test AUROC macro: {test_auroc_macro:.4f}, test AUROC micro: {test_auroc_micro:.4f}, test accuracy: {test_acc:.4f}, test_loss: {test_loss:.4f}"
                 )
+                time_steps.append({"epoch": i_epoch, "batch": j_batch})
+                stats = {
+                    # "best_auroc": best_auroc,
+                    "best_test_acc": best_test_acc,
+                    "train_losses": all_train_losses,
+                    "test_losses": all_test_losses,
+                    "test_aurocs_micro": all_test_aurocs_micro,
+                    "test_aurocs_macro": all_test_aurocs_macro,
+                    "time_steps": time_steps,
+                }
+                for n, acc in enumerate(class_accuracies):
+                    stats[f"test_acc_for_phoneme_{n}_{PHONE_DEF[n]}"] = acc
 
-                if test_auroc_macro > best_auroc:
+                with open(out_dir / "trainingStats.json", "w") as file:
+                    json.dump(stats, file, indent=4)
+
+                # if test_auroc_macro > best_auroc:
+                if test_acc > best_test_acc:
                     count_patience = 0
-                    torch.save(model.state_dict(), out_dir / "modelWeights")
-                    best_auroc = test_auroc_macro
+                    model_file = out_dir / "modelWeights"
+                    print(f"Saving model checkpoint to: {model_file}")
+                    torch.save(model.state_dict(), model_file)
+                    best_test_acc = test_acc
+                    print(f"New best test accuracy: {best_test_acc}")
 
                     # Save the predictions and true labels
                     torch.save(all_preds, out_dir / "all_preds.pt")
                     torch.save(all_labels, out_dir / "all_labels.pt")
 
-                    # Compute the confusion matrix
+                    # Compute and plot the confusion matrix
                     cm = confusion_matrix(all_labels, all_preds_np_argmax)
 
-                    # Plot the heatmap
                     plt.figure(figsize=(10, 8))
                     sns.heatmap(
-                        cm,
-                        annot=True,
-                        fmt="d",
-                        cmap="Blues",
-                        xticklabels=range(n_classes),
-                        yticklabels=range(n_classes),
+                        cm, annot=True, fmt="d", cmap="Blues", xticklabels=PHONE_DEF, yticklabels=PHONE_DEF,
                     )
                     plt.xlabel("Predicted Phoneme")
                     plt.ylabel("True Phoneme")
                     plt.title(f"Confusion Matrix - Phoneme Classifier (epoch: {i}, batch: {j})")
                     plt.savefig(ROOT_DIR / "plots" / "phoneme_classification_heatmap.png")
-                    plt.savefig(out_dir / "phoneme_classification_heatmap.png")
+                    plt.savefig(out_dir / "phoneme_classification_confusion_matrix.png")
                     plt.close()
                 else:
                     count_patience += 1
                     if count_patience == patience:
                         break
 
-    return {"best_auroc": best_auroc, "train_losses": all_train_losses, "test_losses": all_test_losses, "test_aurocs_micro": all_test_aurocs_micro, "test_aurocs_macro": all_test_aurocs_macro}
+                print(f"Patience counter: {count_patience} out of {patience}")
+    return stats
+
+
+def get_label_distribution(dataset):
+    label_counts = Counter()
+
+    for sample in dataset:
+        labels = sample[1].item()
+        label_counts.update([labels])
+
+    return label_counts
+
+
+def plot_phoneme_distribution(
+    class_counts,
+    out_file: Path,
+    title: str = "Phoneme Class Counts",
+    x_label: str = "Phoneme",
+    y_label: str = "Count",
+) -> None:
+    plt.figure(figsize=(12, 6))
+    sns.barplot(x=PHONE_DEF, y=class_counts, palette="muted")  # color=(80 / 255, 80 / 255, 200 / 255, 0.6))
+
+    plt.xticks(rotation=90)
+    plt.xlabel(x_label)
+    plt.ylabel(y_label)
+    plt.title(title)
+    plt.grid(True)
+    plt.tight_layout()
+
+    plt.savefig(out_file)
 
 
 def main(args: dict) -> None:
+    for k, v in args.items():
+        print(f"{k}: {v}")
+
     out_dir = Path(args["output_dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
 
     with open(out_dir / "args", "wb") as file:
         pickle.dump(args, file)
+    with open(out_dir / "args.json", "w") as file:
+        json.dump(args, file, indent=4)
 
     random.seed(args["seed"])
     np.random.seed(args["seed"])
@@ -240,12 +235,11 @@ def main(args: dict) -> None:
 
     batch_size = args["batch_size"]
     device = args["device"]
-    print(f"device = {device}")
 
     train_file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
     with open(train_file, "rb") as handle:
         data = pickle.load(handle)
-    
+
     # fmt: off
     class_counts = [
         4841, 7058, 27635, 3298, 2566, 7524, 4674, 2062, 11389, 9501,
@@ -254,6 +248,11 @@ def main(args: dict) -> None:
         23188, 2083, 1688, 8414, 6566, 6633, 3707, 7403, 7807
     ]  
     # fmt: on
+    plot_phoneme_distribution(
+        class_counts,
+        ROOT_DIR / "plots" / "phoneme_distribution_training_set_correctly_classified_by_RNN.png",
+        "Phoneme Distribution in Training Set",
+    )
 
     # Calculate weights for each class
     if args["class_weights"] == "sqrt":
@@ -265,7 +264,7 @@ def main(args: dict) -> None:
     else:
         class_weights = None
 
-    train_dl = get_data_loader(
+    train_dl_real = get_data_loader(
         data=data,
         batch_size=batch_size,
         shuffle=False,
@@ -274,6 +273,7 @@ def main(args: dict) -> None:
         phoneme_ds_filter={"correctness_value": ["C"], "phoneme_cls": list(range(1, 40))},
         class_weights=class_weights,
     )
+    labels_train = get_label_distribution(train_dl_real.dataset)
 
     test_file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
     with open(test_file, "rb") as handle:
@@ -286,8 +286,48 @@ def main(args: dict) -> None:
         collate_fn=None,
         dataset_cls=PhonemeDataset,
         phoneme_ds_filter={"correctness_value": ["C"], "phoneme_cls": list(range(1, 40))},
-        class_weights=None
+        class_weights=None,
     )
+    labels_test = get_label_distribution(test_dl.dataset)
+    class_counts_test = [labels_test[i] for i in range(len(PHONE_DEF))]
+    plot_phoneme_distribution(
+        class_counts_test,
+        ROOT_DIR / "plots" / "phoneme_distribution_test_set_correctly_classified_by_RNN.png",
+        "Phoneme Distribution in Test Set",
+    )
+
+    print(f"\nlabels_train = {sorted(labels_train)}")
+    print(f"\nlabels_test = {sorted(labels_test)}")
+
+    if (
+        "generative_model_args_path" in args.keys()
+        and "generative_model_weights_path" in args.keys()
+        and "generative_model_n_samples" in args.keys()
+    ):
+        print("Use real and synthetic data ...")
+
+        gen_model = PhonemeImageGAN.load_model(
+            args_path=args["generative_model_args_path"], weights_path=args["generative_model_weights_path"],
+        )
+
+        # neural_window_shape = next(iter(train_dl_real))[0].size()
+        n_synthetic_samples = args["generative_model_n_samples"]
+        synthetic_ds = gen_model.create_synthetic_phoneme_dataset(
+            n_samples=n_synthetic_samples, neural_window_shape=(32, 256),
+        )
+        synthetic_dl = DataLoader(
+            synthetic_ds,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=0,
+            pin_memory=True,
+            collate_fn=None,
+        )
+
+        train_dl = MergedDataLoader(train_dl_real, synthetic_dl)
+    else:
+        print("Use only real data ...")
+        train_dl = train_dl_real
 
     n_classes = 39
     model = PhonemeClassifier(n_classes=n_classes).to(device)
@@ -309,6 +349,8 @@ def main(args: dict) -> None:
         n_epochs=n_epochs,
         patience=10,
     )
+    with open(out_dir / "trainingStats.json", "w") as file:
+        json.dump(output, file, indent=4)
     best_auroc = output["best_auroc"]
 
 
@@ -327,18 +369,33 @@ if __name__ == "__main__":
 
     for lr in [1e-4]:
         for batch_size in [64, 128]:
-            print(f"\n\nlr = {lr}")
-            print(f"batch_size = {batch_size}")
-            args[
-                "output_dir"
-            ] = f"/data/engs-pnpl/lina4471/willett2023/phoneme_classifier/PhonemeClassifier_bs_{batch_size}_lr_{lr}"
-            args["generative_model_path"] = "/data/engs-pnpl/lina4471/willett2023/"
-            args["lr"] = lr
-            args["batch_size"] = batch_size
-            args["class_weights"] = "sqrt"
+            for cls_weights in ["sqrt", None]:
+                for synthetic_data in [True, False]:
+                    # synthetic_data = True
 
-            # args["n_input_features"] = 41
-            # args["n_output_features"] = 256
-            # args["hidden_dim"] = 512
-            # args["n_layers"] = 2
-            main(args)
+                    args[
+                        "output_dir"
+                    ] = f"/data/engs-pnpl/lina4471/willett2023/phoneme_classifier/PhonemeClassifier_bs_{batch_size}__lr_{lr}__cls_ws_{cls_weights}__synthetic_{synthetic_data}"
+                    if synthetic_data:
+                        args[
+                            "generative_model_args_path"
+                        ] = "/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_20240707_132459/args"
+                        args[
+                            "generative_model_weights_path"
+                        ] = "/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_20240707_132459/modelWeights_epoch_1"
+                        args["generative_model_n_samples"] = 50_000
+                    print(args["generative_model_weights_path"])
+                    args["lr"] = lr
+                    args["batch_size"] = batch_size
+                    args["class_weights"] = cls_weights
+
+                    # args["n_input_features"] = 41
+                    # args["n_output_features"] = 256
+                    # args["hidden_dim"] = 512
+                    # args["n_layers"] = 2
+
+                    if "generative_model_weights_path" in args.keys():
+                        print("\nTrain phoeneme classifier using REAL and SYNTHETIC data!")
+                    else:
+                        print("\nTrain phoeneme classifier using only REAL data!")
+                    main(args)
