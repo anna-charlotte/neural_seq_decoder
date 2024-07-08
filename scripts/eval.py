@@ -25,7 +25,8 @@ def cer(logits: torch.Tensor, X_len: torch.Tensor, y: torch.Tensor, y_len: torch
     adjusted_lens = X_len
     for iterIdx in range(logits.shape[0]):
         decoded_seq = torch.argmax(
-            torch.tensor(logits[iterIdx, 0 : adjusted_lens[iterIdx], :]), dim=-1,
+            torch.tensor(logits[iterIdx, 0 : adjusted_lens[iterIdx], :]),
+            dim=-1,
         )  # [num_seq,]
         decoded_seq = torch.unique_consecutive(decoded_seq, dim=-1)
         decoded_seq = decoded_seq.cpu().detach().numpy()
@@ -135,7 +136,9 @@ def save_model_output(loaded_data: dict, model: nn.Module, device: str, out_file
                 data[dayIdx]["logitLengths"].append(adjusted_lens[iterIdx].cpu().detach().item())
 
                 correctness_values = assign_correctness_values(
-                    pred_seq=pred_indices[iterIdx], true_seq=y[iterIdx], silence_placeholder=0,
+                    pred_seq=pred_indices[iterIdx],
+                    true_seq=y[iterIdx],
+                    silence_placeholder=0,
                 )
                 data[dayIdx]["correctness_values"].append(correctness_values)
                 assert len(correctness_values) == len(
@@ -181,14 +184,20 @@ def evaluate(ngram_decoder, model_test_outputs, model_holdOut_outputs, outputFil
 
     print("\nDecoding Test...\n", flush=True)
     decoder_out_test = lmDecoderUtils.cer_with_lm_decoder(
-        ngram_decoder, model_test_outputs, outputType="speech_sil", blankPenalty=np.log(2),
+        ngram_decoder,
+        model_test_outputs,
+        outputType="speech_sil",
+        blankPenalty=np.log(2),
     )
 
     print(f"\n-------- WER: {decoder_out_test['wer']:.3f} --------\n", flush=True)
 
     print("\nDecoding HoldOut...\n", flush=True)
     decoder_out_holdOut = lmDecoderUtils.cer_with_lm_decoder(
-        ngram_decoder, model_holdOut_outputs, outputType="speech_sil", blankPenalty=np.log(2),
+        ngram_decoder,
+        model_holdOut_outputs,
+        outputType="speech_sil",
+        blankPenalty=np.log(2),
     )
 
     filename = f"{outputFilePath}_cer_{decoder_out_test['cer']:.3f}_wer_{decoder_out_test['wer']:.3f}.txt"
@@ -233,11 +242,17 @@ if __name__ == "__main__":
         save_model_output(loaded_data=loaded_data["test"], model=model, device=device, out_file=file)
 
     if eval_model:
-        model_test_outputs = get_model_outputs(loaded_data=loaded_data["test"], model=model, device=device,)
+        model_test_outputs = get_model_outputs(
+            loaded_data=loaded_data["test"],
+            model=model,
+            device=device,
+        )
         print("Test raw CER: ", np.mean(model_test_outputs["cer"]), flush=True)
 
         model_holdOut_outputs = get_model_outputs(
-            loaded_data=loaded_data["competition"], model=model, device=device,
+            loaded_data=loaded_data["competition"],
+            model=model,
+            device=device,
         )
 
         test_out_path = model_out_path + "_test.pkl"

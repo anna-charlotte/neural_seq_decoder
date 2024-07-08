@@ -21,7 +21,13 @@ def phonemes_to_signal(model, phonemes: list) -> torch.Tensor:
 
     signal = []
     for p in phonemes:
-        s = model.generate(label=torch.tensor([p,]))
+        s = model.generate(
+            label=torch.tensor(
+                [
+                    p,
+                ]
+            )
+        )
         s = s.view(1, 32, 16, 16)
         signal.append(s)
 
@@ -40,7 +46,6 @@ class PhonemeImageGAN(nn.Module):
         n_critic: int = 5,
         clip_value: float = 0.01,
         lr=1e-4,
-        transform=None,
     ):
         super(PhonemeImageGAN, self).__init__()
         if isinstance(phoneme_cls, list):
@@ -54,19 +59,18 @@ class PhonemeImageGAN(nn.Module):
         elif isinstance(self.phoneme_cls, list):
             self.n_classes = len(self.phoneme_cls)
 
-        self.g = Generator(latent_dim, phoneme_cls, ngf).to(device)
-        self.d = Discriminator(n_channels, phoneme_cls, ndf).to(device)
+        self._g = Generator(latent_dim, phoneme_cls, ngf).to(device)
+        self._d = Discriminator(n_channels, phoneme_cls, ndf).to(device)
         self.device = device
         self.n_critic = n_critic
         self.clip_value = clip_value
         self.lr = lr
-        self.transform = transform
 
-        self.g.apply(self._weights_init)
-        self.d.apply(self._weights_init)
+        self._g.apply(self._weights_init)
+        self._d.apply(self._weights_init)
 
-        self.optim_d = optim.RMSprop(self.d.parameters(), lr=self.lr)
-        self.optim_g = optim.RMSprop(self.g.parameters(), lr=self.lr)
+        self.optim_d = optim.RMSprop(self._d.parameters(), lr=self.lr)
+        self.optim_g = optim.RMSprop(self._g.parameters(), lr=self.lr)
 
     def _weights_init(self, m):
         if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d) or isinstance(m, nn.BatchNorm2d):
@@ -76,30 +80,33 @@ class PhonemeImageGAN(nn.Module):
         X_real, y, _, _ = data
 
         y = y.to(self.device)
+        y = _get_indices_in_classes(y, torch.tensor(self.phoneme_cls, device=y.device)).to(y.device)
         X_real = X_real.to(self.device)
         # X_real = X_real.view(X_real.size(0), X_real.size(1), 16, 16)
         X_real = X_real.view(-1, 128, 8, 8)
-        if isinstance(self.phoneme_cls, list) and len(self.phoneme_cls) < 41:
-            # y = y - 1
-            y = _get_indices_in_classes(y, torch.tensor(self.phoneme_cls, device=y.device))
+        # if isinstance(self.phoneme_cls, list) and len(self.phoneme_cls) < 41:
+        #     # y = y - 1
+        #     y = _get_indices_in_classes(y, torch.tensor(self.phoneme_cls, device=y.device)).to(y.device)
 
         for _ in range(self.n_critic):
-            self.d.zero_grad()
-            output_real = self.d(X_real, y)
-            noise = torch.randn(y.size(0), self.g.latent_dim, device=self.device)
-            X_fake = self.g(noise, y)
-            output_fake = self.d(X_fake.detach(), y)
+            self._d.zero_grad()
+
+            output_real = self._d(X_real, y)
+            noise = torch.randn(y.size(0), self._g.latent_dim, device=self.device)
+
+            X_fake = self._g(noise, y)
+            output_fake = self._d(X_fake.detach(), y)
             errD = -(torch.mean(output_real) - torch.mean(output_fake))
             errD.backward()
             self.optim_d.step()
 
             # Weight clipping
-            for p in self.d.parameters():
+            for p in self._d.parameters():
                 p.data.clamp_(-self.clip_value, self.clip_value)
 
         # Update generator
-        self.g.zero_grad()
-        output_fake = self.d(X_fake, y)
+        self._g.zero_grad()
+        output_fake = self._d(X_fake, y)
         errG = -torch.mean(output_fake)
         errG.backward()
         self.optim_g.step()
@@ -107,11 +114,9 @@ class PhonemeImageGAN(nn.Module):
         return errD, errG
 
     def generate(self, label: torch.Tensor):
-        self.g.eval()
-        noise = torch.randn(1, self.g.latent_dim, device=self.device)
-        gen_img = self.g(noise, label.to(self.device))
-        if self.transform is not None:
-            gen_img = self.transform(gen_img)
+        self._g.eval()
+        noise = torch.randn(1, self._g.latent_dim, device=self.device)
+        gen_img = self._g(noise, label.to(self.device))
         return gen_img
 
     def create_synthetic_phoneme_dataset(
@@ -223,9 +228,7 @@ class Generator(nn.Module):
         )
 
     def forward(self, noise, labels):
-        labels = _get_indices_in_classes(labels, torch.tensor(self.phoneme_cls, device=labels.device)).to(
-            labels.device
-        )
+
         if self.conditional:
             labels = self.label_emb(labels)
             gen_input = torch.cat((noise, labels), -1)
@@ -242,7 +245,7 @@ def _get_indices_in_classes(labels, classes):
         index = torch.where(classes == label)[0]
         indices.append(index)
         if not index.numel() > 0:
-            raise ValueError("Invalid label given!")
+            raise ValueError(f"Invalid label given: {label}")
 
     return torch.tensor(indices).int()
 
@@ -261,6 +264,8 @@ class Discriminator(nn.Module):
             input_dim = n_channels
             self.label_emb = None
 
+        self.phoneme_cls = phoneme_cls
+        print(f"phoneme_cls = {phoneme_cls}")
         # self.model = nn.Sequential(
         #     # input is (n_channels) x 16 x 16
         #     nn.Conv2d(input_dim, ndf, 4, 2, 1, bias=False),
@@ -301,6 +306,7 @@ class Discriminator(nn.Module):
         )
 
     def forward(self, img, labels):
+
         if self.conditional:
             labels = self.label_emb(labels)
             labels = labels.view(labels.size(0), labels.size(1), 1, 1)

@@ -7,49 +7,20 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+import torch.nn as nn
 
 from neural_decoder.dataset import PhonemeDataset
 from neural_decoder.neural_decoder_trainer import get_data_loader
 from neural_decoder.phoneme_utils import ROOT_DIR
+from neural_decoder.transforms import SoftsignTransform
 from text2brain.models.phoneme_image_gan import PhonemeImageGAN
 from text2brain.visualization import plot_brain_signal_animation
-
-
-class NormalizeTransform:
-    def __init__(self, mean, std):
-        self.mean = mean
-        self.std = std
-
-    def __call__(self, sample):
-        return (sample - self.mean) / self.std
-
-
-class DenormalizeTransform:
-    def __init__(self, mean, std):
-        self.mean = mean
-        self.std = std
-
-    def __call__(self, sample):
-        return (sample * self.std) + self.mean
-
-
-def calculate_mean_std(data):
-    all_data = []
-    for day in range(len(data)):
-        for trial in range(len(data[day]["sentenceDat"])):
-            signal = data[day]["sentenceDat"][trial]
-            all_data.append(signal)
-    all_data = torch.cat(all_data, dim=0)
-    mean = all_data.mean()
-    std = all_data.std()
-    return mean, std
+from utils import set_seeds
 
 
 def main(args: dict) -> None:
 
-    random.seed(args["seed"])
-    np.random.seed(args["seed"])
-    torch.manual_seed(args["seed"])
+    set_seeds(args["seed"])
     torch.use_deterministic_algorithms(True)
 
     out_dir = Path(args["output_dir"])
@@ -64,14 +35,9 @@ def main(args: dict) -> None:
     with open(train_file, "rb") as handle:
         train_data = pickle.load(handle)
 
-    mean, std = calculate_mean_std(train_data)
-    print(f"mean = {mean}")
-    print(f"std = {std}")
-    normalize_transform = NormalizeTransform(mean, std)
-    reverse_norm_transform = DenormalizeTransform(mean, std)
-    args["gan_transform_mean"] = mean
-    args["gan_transform_std"] = std
-    args["gan_transform_cls"] = DenormalizeTransform.__name__
+    transform = None
+    if args["transform"] == "softsign":
+        transform = SoftsignTransform()
 
     phoneme_ds_filter = {"correctness_value": ["C"], "phoneme_cls": list(range(1, 40))}
     if isinstance(phoneme_cls, int):
@@ -85,7 +51,7 @@ def main(args: dict) -> None:
         collate_fn=None,
         dataset_cls=PhonemeDataset,
         phoneme_ds_filter=phoneme_ds_filter,
-        trasnform=normalize_transform,
+        transform=transform,
     )
 
     print(f"len(train_dl.dataset) = {len(train_dl.dataset)}")
@@ -101,6 +67,7 @@ def main(args: dict) -> None:
         collate_fn=None,
         dataset_cls=PhonemeDataset,
         phoneme_ds_filter=phoneme_ds_filter,
+        transform=transform,
     )
 
     gan = PhonemeImageGAN(
@@ -113,12 +80,11 @@ def main(args: dict) -> None:
         n_critic=args["n_critic"],
         clip_value=args["clip_value"],
         lr=args["lr"],
-        transform=reverse_norm_transform,
     )
 
     G_losses = []
     D_losses = []
-    # noise_vector = torch.randn(1, gan.g.latent_dim, device=gan.device)
+    # noise_vector = torch.randn(1, gan._g.latent_dim, device=gan.device)
     n_epochs = args["n_epochs"]
 
     with open(out_dir / "args", "wb") as file:
@@ -129,7 +95,6 @@ def main(args: dict) -> None:
     for epoch in range(n_epochs):
         print(f"epoch = {epoch}")
         for i, data in enumerate(train_dl):
-            # print(f"i = {i}")
             errD, errG = gan(data)
 
             # output training stats
@@ -139,7 +104,7 @@ def main(args: dict) -> None:
                 )
 
             #     phoneme = 2
-            #     signal = gan.g(noise_vector, torch.tensor([phoneme]).to(device))
+            #     signal = gan._g(noise_vector, torch.tensor([phoneme]).to(device))
             #     plot_brain_signal_animation(
             #         signal=signal,
             #         save_path=ROOT_DIR
@@ -197,12 +162,12 @@ if __name__ == "__main__":
     args = {}
     args["seed"] = 0
     args["device"] = "cuda"
-    args[
-        "train_set_path"
-    ] = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
-    args[
-        "test_set_path"
-    ] = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
+    args["train_set_path"] = (
+        "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
+    )
+    args["test_set_path"] = (
+        "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
+    )
     args["output_dir"] = f"/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_{timestamp}"
     args["batch_size"] = 16
     args["n_classes"] = 39
@@ -222,5 +187,6 @@ if __name__ == "__main__":
     args["lr"] = 0.0001
     args["clip_value"] = 0.01
     args["n_critic"] = 5
+    args["transform"] = "softsign"
 
     main(args)

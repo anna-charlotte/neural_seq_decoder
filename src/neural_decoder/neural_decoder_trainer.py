@@ -99,14 +99,20 @@ def trainModel(args):
     with open(args["outputDir"] / "args.json", "w") as file:
         json.dump(args, file, indent=4)
 
-    train_loader, test_loader, loaded_data = get_dataset_loaders(args["datasetPath"], args["batchSize"],)
+    train_loader, test_loader, loaded_data = get_dataset_loaders(
+        args["datasetPath"],
+        args["batchSize"],
+    )
     if "datasetPathSynthetic" in args.keys() and args["datasetPathSynthetic"] != "":
         dataset_name = args["datasetPathSynthetic"]
         with open(dataset_name, "rb") as handle:
             data = pickle.load(handle)
 
         synthetic_loader = get_data_loader(
-            data=data, batch_size=args["batchSize"], shuffle=True, collate_fn=_padding,
+            data=data,
+            batch_size=args["batchSize"],
+            shuffle=True,
+            collate_fn=_padding,
         )
         assert (
             0.0 <= args["proportionSynthetic"] <= 1.0
@@ -131,10 +137,17 @@ def trainModel(args):
 
     loss_ctc = torch.nn.CTCLoss(blank=0, reduction="mean", zero_infinity=True)
     optimizer = torch.optim.Adam(
-        model.parameters(), lr=args["lrStart"], betas=(0.9, 0.999), eps=0.1, weight_decay=args["l2_decay"],
+        model.parameters(),
+        lr=args["lrStart"],
+        betas=(0.9, 0.999),
+        eps=0.1,
+        weight_decay=args["l2_decay"],
     )
     scheduler = torch.optim.lr_scheduler.LinearLR(
-        optimizer, start_factor=1.0, end_factor=args["lrEnd"] / args["lrStart"], total_iters=args["nBatch"],
+        optimizer,
+        start_factor=1.0,
+        end_factor=args["lrEnd"] / args["lrStart"],
+        total_iters=args["nBatch"],
     )
 
     # --train--
@@ -208,7 +221,8 @@ def trainModel(args):
                     adjusted_lens = ((X_len - model.kernelLen) / model.strideLen).to(torch.int32)
                     for iterIdx in range(pred.shape[0]):
                         decoded_seq = torch.argmax(
-                            torch.tensor(pred[iterIdx, 0 : adjusted_lens[iterIdx], :]), dim=-1,
+                            torch.tensor(pred[iterIdx, 0 : adjusted_lens[iterIdx], :]),
+                            dim=-1,
                         )  # [num_seq,]
                         decoded_seq = torch.unique_consecutive(decoded_seq, dim=-1)
                         decoded_seq = decoded_seq.cpu().detach().numpy()

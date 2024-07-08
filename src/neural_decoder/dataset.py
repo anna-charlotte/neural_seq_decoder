@@ -177,7 +177,12 @@ class PhonemeDataset(BaseDataset):
 
 
 class SyntheticPhonemeDataset(BaseDataset):
-    def __init__(self, neural_windows: list, phoneme_labels: list, transform: callable = None,) -> None:
+    def __init__(
+        self,
+        neural_windows: list,
+        phoneme_labels: list,
+        transform: callable = None,
+    ) -> None:
         self.neural_windows = neural_windows
         self.phonemes = phoneme_labels
 

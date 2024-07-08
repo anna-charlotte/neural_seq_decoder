@@ -1,7 +1,7 @@
 import json
 import pickle
-import random
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -19,7 +19,10 @@ from neural_decoder.dataset import PhonemeDataset
 from neural_decoder.model_phoneme_classifier import PhonemeClassifier
 from neural_decoder.neural_decoder_trainer import get_data_loader
 from neural_decoder.phoneme_utils import PHONE_DEF, ROOT_DIR
+from neural_decoder.transforms import SoftsignTransform
 from text2brain.models import PhonemeImageGAN
+from text2brain.models.phoneme_image_gan import _get_indices_in_classes
+from utils import set_seeds
 
 
 def train_model(
@@ -33,9 +36,9 @@ def train_model(
     out_dir,
     n_epochs: int,
     patience: int,
+    model_classes: list,
 ) -> dict:
-    print("Train model ...")
-    best_auroc = 0.0
+    print("Train PhonemeClassifier model ...")
     best_test_acc = 0.0
     count_patience = 0
     all_train_losses = []
@@ -49,8 +52,7 @@ def train_model(
             model.train()
 
             X, y, logits, dayIdx = data
-            if n_classes < 41:
-                y = y - 1
+            y = _get_indices_in_classes(y, torch.tensor(model_classes, device=y.device)).to(y.device)
 
             X, y, logits, dayIdx = (X.to(device), y.to(device), logits.to(device), dayIdx.to(device))
             optimizer.zero_grad()
@@ -63,7 +65,7 @@ def train_model(
             optimizer.step()
             all_train_losses.append(loss.item())
 
-            if j > 0 and j % 100 == 0:
+            if j_batch > 0 and j_batch % 100 == 0:
                 print("Eval ...")
                 # evaluate
                 model.eval()
@@ -78,6 +80,10 @@ def train_model(
                 with torch.no_grad():
                     for batch in test_dl:
                         X, y, logits, dayIdx = batch
+                        y = _get_indices_in_classes(y, torch.tensor(model_classes, device=y.device)).to(
+                            y.device
+                        )
+
                         X, y, logits, dayIdx = (
                             X.to(device),
                             y.to(device),
@@ -86,8 +92,7 @@ def train_model(
                         )
                         # X = X.view(1, 32, 16, 16)
                         X = X.view(1, 128, 8, 8)
-                        if n_classes < 41:
-                            y = y - 1
+
                         pred = model(X)
 
                         probs = F.softmax(pred, dim=1)
@@ -137,7 +142,6 @@ def train_model(
                 )
                 time_steps.append({"epoch": i_epoch, "batch": j_batch})
                 stats = {
-                    # "best_auroc": best_auroc,
                     "best_test_acc": best_test_acc,
                     "train_losses": all_train_losses,
                     "test_losses": all_test_losses,
@@ -151,14 +155,13 @@ def train_model(
                 with open(out_dir / "trainingStats.json", "w") as file:
                     json.dump(stats, file, indent=4)
 
-                # if test_auroc_macro > best_auroc:
                 if test_acc > best_test_acc:
                     count_patience = 0
                     model_file = out_dir / "modelWeights"
                     print(f"Saving model checkpoint to: {model_file}")
                     torch.save(model.state_dict(), model_file)
                     best_test_acc = test_acc
-                    print(f"New best test accuracy: {best_test_acc}")
+                    print(f"New best test accuracy: {best_test_acc:.4f}")
 
                     # Save the predictions and true labels
                     torch.save(all_preds, out_dir / "all_preds.pt")
@@ -169,11 +172,16 @@ def train_model(
 
                     plt.figure(figsize=(10, 8))
                     sns.heatmap(
-                        cm, annot=True, fmt="d", cmap="Blues", xticklabels=PHONE_DEF, yticklabels=PHONE_DEF,
+                        cm,
+                        annot=True,
+                        fmt="d",
+                        cmap="Blues",
+                        xticklabels=PHONE_DEF,
+                        yticklabels=PHONE_DEF,
                     )
                     plt.xlabel("Predicted Phoneme")
                     plt.ylabel("True Phoneme")
-                    plt.title(f"Confusion Matrix - Phoneme Classifier (epoch: {i}, batch: {j})")
+                    plt.title(f"Confusion Matrix - Phoneme Classifier (epoch: {i_epoch}, batch: {j_batch})")
                     plt.savefig(ROOT_DIR / "plots" / "phoneme_classification_heatmap.png")
                     plt.savefig(out_dir / "phoneme_classification_confusion_matrix.png")
                     plt.close()
@@ -223,14 +231,7 @@ def main(args: dict) -> None:
     out_dir = Path(args["output_dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    with open(out_dir / "args", "wb") as file:
-        pickle.dump(args, file)
-    with open(out_dir / "args.json", "w") as file:
-        json.dump(args, file, indent=4)
-
-    random.seed(args["seed"])
-    np.random.seed(args["seed"])
-    torch.manual_seed(args["seed"])
+    set_seeds(args["seed"])
     # torch.use_deterministic_algorithms(True)
 
     batch_size = args["batch_size"]
@@ -264,14 +265,24 @@ def main(args: dict) -> None:
     else:
         class_weights = None
 
+    phoneme_ds_filter = {"correctness_value": ["C"], "phoneme_cls": list(range(1, 40))}
+    args["phoneme_ds_filter"] = phoneme_ds_filter
+    phoneme_classes = phoneme_ds_filter["phoneme_cls"]
+
+    transform = None
+    if args["transform"] == "softsign":
+        transform = SoftsignTransform()
+    print(f"transform = {transform.__class__.__name__}")
+
     train_dl_real = get_data_loader(
         data=data,
         batch_size=batch_size,
         shuffle=False,
         collate_fn=None,
         dataset_cls=PhonemeDataset,
-        phoneme_ds_filter={"correctness_value": ["C"], "phoneme_cls": list(range(1, 40))},
+        phoneme_ds_filter=phoneme_ds_filter,
         class_weights=class_weights,
+        transform=transform,
     )
     labels_train = get_label_distribution(train_dl_real.dataset)
 
@@ -285,8 +296,9 @@ def main(args: dict) -> None:
         shuffle=False,
         collate_fn=None,
         dataset_cls=PhonemeDataset,
-        phoneme_ds_filter={"correctness_value": ["C"], "phoneme_cls": list(range(1, 40))},
+        phoneme_ds_filter=phoneme_ds_filter,
         class_weights=None,
+        transform=transform,
     )
     labels_test = get_label_distribution(test_dl.dataset)
     class_counts_test = [labels_test[i] for i in range(len(PHONE_DEF))]
@@ -307,13 +319,15 @@ def main(args: dict) -> None:
         print("Use real and synthetic data ...")
 
         gen_model = PhonemeImageGAN.load_model(
-            args_path=args["generative_model_args_path"], weights_path=args["generative_model_weights_path"],
+            args_path=args["generative_model_args_path"],
+            weights_path=args["generative_model_weights_path"],
         )
 
         # neural_window_shape = next(iter(train_dl_real))[0].size()
         n_synthetic_samples = args["generative_model_n_samples"]
         synthetic_ds = gen_model.create_synthetic_phoneme_dataset(
-            n_samples=n_synthetic_samples, neural_window_shape=(32, 256),
+            n_samples=n_synthetic_samples,
+            neural_window_shape=(32, 256),
         )
         synthetic_dl = DataLoader(
             synthetic_ds,
@@ -329,13 +343,19 @@ def main(args: dict) -> None:
         print("Use only real data ...")
         train_dl = train_dl_real
 
-    n_classes = 39
+    n_classes = len(phoneme_classes)
+    args["n_classes"] = n_classes
     model = PhonemeClassifier(n_classes=n_classes).to(device)
 
     n_epochs = args["n_epochs"]
     lr = args["lr"]
     optimizer = optim.Adam(model.parameters(), lr=lr)
     criterion = nn.CrossEntropyLoss()
+
+    with open(out_dir / "args", "wb") as file:
+        pickle.dump(args, file)
+    with open(out_dir / "args.json", "w") as file:
+        json.dump(args, file, indent=4)
 
     output = train_model(
         model=model,
@@ -348,9 +368,9 @@ def main(args: dict) -> None:
         out_dir=out_dir,
         n_epochs=n_epochs,
         patience=10,
+        model_classes=phoneme_classes,
     )
-    with open(out_dir / "trainingStats.json", "w") as file:
-        json.dump(output, file, indent=4)
+
     best_auroc = output["best_auroc"]
 
 
@@ -359,35 +379,38 @@ if __name__ == "__main__":
     args = {}
     args["seed"] = 0
     args["device"] = "cuda" if torch.cuda.is_available() else "cpu"
-    args[
-        "train_set_path"
-    ] = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
-    args[
-        "test_set_path"
-    ] = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
+    args["train_set_path"] = (
+        "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
+    )
+    args["test_set_path"] = (
+        "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
+    )
     args["n_epochs"] = 10
 
     for lr in [1e-4]:
         for batch_size in [64, 128]:
             for cls_weights in ["sqrt", None]:
-                for synthetic_data in [True, False]:
-                    # synthetic_data = True
+                for synthetic_data in [False, True]:
 
-                    args[
-                        "output_dir"
-                    ] = f"/data/engs-pnpl/lina4471/willett2023/phoneme_classifier/PhonemeClassifier_bs_{batch_size}__lr_{lr}__cls_ws_{cls_weights}__synthetic_{synthetic_data}"
+                    now = datetime.now()
+                    timestamp = now.strftime("%Y%m%d_%H%M%S")
+
+                    args["output_dir"] = (
+                        f"/data/engs-pnpl/lina4471/willett2023/phoneme_classifier/PhonemeClassifier_bs_{batch_size}__lr_{lr}__cls_ws_{cls_weights}__synthetic_{synthetic_data}_{timestamp}"
+                    )
                     if synthetic_data:
-                        args[
-                            "generative_model_args_path"
-                        ] = "/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_20240707_132459/args"
-                        args[
-                            "generative_model_weights_path"
-                        ] = "/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_20240707_132459/modelWeights_epoch_1"
+                        args["generative_model_args_path"] = (
+                            "/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_20240707_132459/args"
+                        )
+                        args["generative_model_weights_path"] = (
+                            "/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_20240707_132459/modelWeights_epoch_1"
+                        )
                         args["generative_model_n_samples"] = 50_000
-                    print(args["generative_model_weights_path"])
+                        print(args["generative_model_weights_path"])
                     args["lr"] = lr
                     args["batch_size"] = batch_size
                     args["class_weights"] = cls_weights
+                    args["transform"] = "softsign"
 
                     # args["n_input_features"] = 41
                     # args["n_output_features"] = 256

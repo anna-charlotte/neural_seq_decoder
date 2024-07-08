@@ -81,7 +81,12 @@ class TextToBrainGRU(TextToBrainInterface):
         print(f"y_len.size() = {y_len.size()}")
         print(f"y_pred_len.size() = {y_pred_len.size()}")
 
-        loss = self.criterion(y_pred, y_true, y_pred_len.to(torch.int32), y_len,)
+        loss = self.criterion(
+            y_pred,
+            y_true,
+            y_pred_len.to(torch.int32),
+            y_len,
+        )
         loss = torch.sum(loss)
         self.optimizer.zero_grad()
         loss.backward()

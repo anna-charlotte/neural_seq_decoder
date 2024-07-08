@@ -7,7 +7,14 @@ from text2brain.models.model_interface import TextToBrainInterface
 
 
 def _generate_data(model: TextToBrainInterface, dl: DataLoader, n_days: int = 24) -> dict:
-    data = [{"sentenceDat": [], "phonemes": [], "phoneLens": [],} for _ in range(n_days)]
+    data = [
+        {
+            "sentenceDat": [],
+            "phonemes": [],
+            "phoneLens": [],
+        }
+        for _ in range(n_days)
+    ]
 
     print(f"\nGenerate data ...")
     for i, batch in enumerate(dl):
