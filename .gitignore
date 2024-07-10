@@ -1,6 +1,8 @@
 .DS_Store
 .idea
 *.png
+*.json
+*.pt
 *.gif
 
 # Byte-compiled / optimized / DLL files
