@@ -1,3 +1,4 @@
+import json
 import pickle
 from collections import Counter
 from datetime import datetime
@@ -6,12 +7,18 @@ from typing import List
 
 import matplotlib.pyplot as plt
 import numpy as np
+import scipy
 import seaborn as sns
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from sklearn.metrics import confusion_matrix, roc_auc_score
+from sklearn.metrics import (
+    balanced_accuracy_score,
+    confusion_matrix,
+    f1_score,
+    roc_auc_score,
+)
 from torch.utils.data import DataLoader
 
 from neural_decoder.dataset import PhonemeDataset
@@ -25,7 +32,7 @@ from utils import set_seeds
 def plot_accuracies(
     accs,
     out_file: Path,
-    title: str = "Phoneme Classification - Test Accuracies (Baseline Classifier)",
+    title: str = "Phoneme Classification - Test Accuracies",
     x_label: str = "Phoneme",
     y_label: str = "Test Accuracy",
 ) -> None:
@@ -64,7 +71,7 @@ def plot_metric_of_multiple_models(
     index = np.arange(n_classes)
 
     # Plotting the bars
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig, ax = plt.subplots(figsize=(12, 6))
     for i, (model, vals) in enumerate(zip(model_names, values)):
         ax.bar(index + i * bar_width, vals, bar_width, label=model, color=colors[i % len(colors)])
 
@@ -88,18 +95,17 @@ def plot_metric_of_multiple_models(
 def main() -> None:
     now = datetime.now()
     timestamp = now.strftime("%Y%m%d_%H%M%S")
+    prefix = f"phoneme_classification_{timestamp}"
 
     model_file_names = [
         "PhonemeClassifier_bs_64__lr_0.0001__cls_ws_sqrt__synthetic_True",
         "PhonemeClassifier_bs_64__lr_0.0001__cls_ws_sqrt__synthetic_False",
     ]
 
-    all_test_accuracies = {}
+    model2metrics = {}
 
     for i, model_file_name in enumerate(model_file_names):
         print(f"\nLoading and evaluating model number {i+1}")
-
-        all_test_accuracies[model_file_name] = {}
 
         model_dir = (
             Path(
@@ -125,20 +131,6 @@ def main() -> None:
             if not "phoneme_ds_filter" in args.keys()
             else args["phoneme_ds_filter"]
         )
-
-        # batch_size = args["batch_size"]
-        # train_data_file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
-        # with open(train_data_file, "rb") as handle:
-        #     data = pickle.load(handle)
-
-        # train_dl = get_data_loader(
-        #     data=data,
-        #     batch_size=batch_size,
-        #     shuffle=False,
-        #     collate_fn=None,
-        #     dataset_cls=PhonemeDataset,
-        #     phoneme_ds_filter=phoneme_ds_filter,
-        # )
 
         test_data_file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
         with open(test_data_file, "rb") as handle:
@@ -207,9 +199,9 @@ def main() -> None:
         # plot test accuracies over each classes
         plot_accuracies(
             class_accuracies,
-            out_file=(ROOT_DIR / "plots" / f"test_accs_{model_file_name}.png"),
+            out_file=(ROOT_DIR / "evaluation" / f"{prefix}_test_accs_{model_file_name}.png"),
+            title=f"Phoneme Classification - Test Accuracies \n (model: {model_file_name})",
         )
-        all_test_accuracies[model_file_name]["class_accuracies"] = class_accuracies
 
         all_preds = torch.cat(all_preds, dim=0)
         all_labels = torch.cat(all_labels, dim=0)
@@ -228,6 +220,27 @@ def main() -> None:
             f"Test AUROC macro: {test_auroc_macro:.4f}, test AUROC micro: {test_auroc_micro:.4f}, test accuracy: {test_acc:.4f}"
         )
 
+        # calculate f1 score
+        test_f1_macro = f1_score(all_labels_np, all_preds_np_argmax, average="macro")
+        test_f1_micro = f1_score(all_labels_np, all_preds_np_argmax, average="micro")
+
+        # Calculate Balanced Accuracy
+        test_balanced_acc = balanced_accuracy_score(all_labels_np, all_preds_np_argmax)
+
+        metrics = {}
+        metrics["best_test_acc_overall"] = test_acc
+        metrics["class_accuracies"] = class_accuracies.tolist()
+        metrics["test_auroc_micro"] = test_auroc_micro
+        metrics["test_auroc_macro"] = test_auroc_macro
+        metrics["test_f1_micro"] = test_f1_micro
+        metrics["test_f1_macro"] = test_f1_macro
+        metrics["test_balanced_acc"] = test_balanced_acc
+
+        for n, acc in enumerate(class_accuracies):
+            metrics[f"test_acc_for_phoneme_{n}_{PHONE_DEF[n]}"] = acc
+
+        model2metrics[model_file_name] = metrics
+
         # compute and plot the confusion matrix
         cm = confusion_matrix(all_labels, all_preds_np_argmax)
 
@@ -243,7 +256,7 @@ def main() -> None:
         plt.xlabel("Predicted Phoneme")
         plt.ylabel("True Phoneme")
         plt.title(f"Confusion Matrix - Phoneme Classifier (CNN) \n (model: {model_file_name})")
-        plt.savefig(ROOT_DIR / "plots" / f"phoneme_classification_{timestamp}_CM_{model_file_name}.png")
+        plt.savefig(ROOT_DIR / "evaluation" / f"phoneme_classification_{timestamp}_CM_{model_file_name}.png")
         plt.close()
 
         # fig, ax = plt.subplots(figsize=(12, 8))
@@ -278,22 +291,46 @@ def main() -> None:
         #         t.set_text("")
 
         # plt.tight_layout()
-        # plt.savefig(ROOT_DIR / "plots" / "testtest.png")
+        # plt.savefig(ROOT_DIR / "evaluation" / "testtest.png")
         # plt.close()
 
-    model_names = list(all_test_accuracies.keys())
-    accuracies = [all_test_accuracies[m]["class_accuracies"] for m in model_names]
+    model_names = list(model2metrics.keys())
+    accuracies = [model2metrics[m]["class_accuracies"] for m in model_names]
     plot_metric_of_multiple_models(
         model_names=model_names,
         values=accuracies,
         classes=PHONE_DEF,
         title="Phoneme Classififers - comparison of accuracies on the test set",
-        out_file=ROOT_DIR
-        / "plots"
-        / f"phoneme_classification_{timestamp}_model_comparison_test_accuracies.png",
+        out_file=ROOT_DIR / "evaluation" / f"{prefix}_model_comparison_test_accuracies.png",
         xlabel="phoneme classes",
         ylabel="accuracy",
     )
+
+    with open(ROOT_DIR / "evaluation" / f"{prefix}_trainingStats.json", "w") as file:
+        json.dump(model2metrics, file, indent=4)
+
+    model2accs = {m: model2metrics[m]["class_accuracies"] for m in model2metrics.keys()}
+    print(f"model2accs = {model2accs}")
+
+    accs = list(model2accs.values())
+    for acc1, acc2 in zip(accs[0], accs[1]):
+        stats, p_val = scipy.stats.mannwhitneyu([acc1], [acc2], alternative="two-sided")
+        print(f"\nstats = {stats}")
+        print(f"p_val = {p_val}")
+
+        stats, p_val = scipy.stats.mannwhitneyu(
+            [acc1 * 100, acc1, acc1 * 2], [acc2 * 100, acc2, acc2], alternative="two-sided"
+        )
+        print(f"stats = {stats}")
+        print(f"p_val = {p_val}")
+
+        stats, p_val = scipy.stats.mannwhitneyu([acc1 * 2], [acc2], alternative="two-sided")
+        print(f"stats = {stats}")
+        print(f"p_val = {p_val}")
+
+        stats, p_val = scipy.stats.mannwhitneyu([acc1 * 1], [acc2 * 10], alternative="two-sided")
+        print(f"stats = {stats}")
+        print(f"p_val = {p_val}")
 
 
 if __name__ == "__main__":

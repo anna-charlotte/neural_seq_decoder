@@ -11,7 +11,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from sklearn.metrics import confusion_matrix, roc_auc_score
+from sklearn.metrics import (
+    balanced_accuracy_score,
+    confusion_matrix,
+    f1_score,
+    roc_auc_score,
+)
 from torch.utils.data import DataLoader
 
 from neural_decoder.dataloader import MergedDataLoader
@@ -39,12 +44,16 @@ def train_model(
     model_classes: list,
 ) -> dict:
     print("Train PhonemeClassifier model ...")
+    stop_training = False
     best_test_acc = 0.0
     count_patience = 0
     all_train_losses = []
     all_test_losses = []
     all_test_aurocs_macro = []
     all_test_aurocs_micro = []
+    all_test_f1_macro = []
+    all_test_f1_micro = []
+    all_test_balanced_acc = []
     time_steps = []
 
     for i_epoch in range(n_epochs):
@@ -65,9 +74,10 @@ def train_model(
             optimizer.step()
             all_train_losses.append(loss.item())
 
+            # evaluate
             if j_batch > 0 and j_batch % 100 == 0:
-                print("Eval ...")
-                # evaluate
+                print("\nEval ...")
+
                 model.eval()
                 test_loss = 0.0
                 correct = 0
@@ -137,6 +147,17 @@ def train_model(
                     all_labels_np, all_preds_np, multi_class="ovr", average="micro"
                 )
                 all_test_aurocs_micro.append(test_auroc_micro)
+
+                # calculate f1 score
+                test_f1_macro = f1_score(all_labels_np, all_preds_np_argmax, average="macro")
+                test_f1_micro = f1_score(all_labels_np, all_preds_np_argmax, average="micro")
+                all_test_f1_macro.append(test_f1_macro)
+                all_test_f1_micro.append(test_f1_micro)
+
+                # Calculate Balanced Accuracy
+                test_balanced_acc = balanced_accuracy_score(all_labels_np, all_preds_np_argmax)
+                all_test_balanced_acc.append(test_balanced_acc)
+
                 print(
                     f"Epoch: {i_epoch}, batch: {j_batch}, test AUROC macro: {test_auroc_macro:.4f}, test AUROC micro: {test_auroc_micro:.4f}, test accuracy: {test_acc:.4f}, test_loss: {test_loss:.4f}"
                 )
@@ -147,6 +168,9 @@ def train_model(
                     "test_losses": all_test_losses,
                     "test_aurocs_micro": all_test_aurocs_micro,
                     "test_aurocs_macro": all_test_aurocs_macro,
+                    "test_f1_micro": all_test_f1_micro,
+                    "test_f1_macro": all_test_f1_macro,
+                    "test_balanced_acc": all_test_balanced_acc,
                     "time_steps": time_steps,
                 }
                 for n, acc in enumerate(class_accuracies):
@@ -188,9 +212,18 @@ def train_model(
                 else:
                     count_patience += 1
                     if count_patience == patience:
+                        stop_training = True
+                        print(f"Stop training due to no improvements after {patience} steps ...")
                         break
 
                 print(f"Patience counter: {count_patience} out of {patience}")
+
+            if stop_training:
+                break
+
+        if stop_training:
+            break
+
     return stats
 
 
@@ -212,7 +245,19 @@ def plot_phoneme_distribution(
     y_label: str = "Count",
 ) -> None:
     plt.figure(figsize=(12, 6))
-    sns.barplot(x=PHONE_DEF, y=class_counts, palette="muted")  # color=(80 / 255, 80 / 255, 200 / 255, 0.6))
+    ax = sns.barplot(x=PHONE_DEF, y=class_counts, palette="muted")
+
+    max_height = max(class_counts)
+    ax.set_ylim(0, 1.15 * max_height)
+
+    for p in ax.patches:
+        height = p.get_height()
+        ax.annotate(f'{height:.0f}', 
+                    (p.get_x() + p.get_width() / 2., height), 
+                    ha = 'center', va = 'center', 
+                    xytext = (0, 18),  # Move the text 12 points above the bar
+                    textcoords = 'offset points',
+                    rotation=90)  # Rotate the text by 90 degrees
 
     plt.xticks(rotation=90)
     plt.xlabel(x_label)
@@ -221,6 +266,7 @@ def plot_phoneme_distribution(
     plt.grid(True)
     plt.tight_layout()
 
+    print(f"Save distribution plot to: {out_file}")
     plt.savefig(out_file)
 
 
@@ -301,77 +347,75 @@ def main(args: dict) -> None:
         transform=transform,
     )
     labels_test = get_label_distribution(test_dl.dataset)
-    class_counts_test = [labels_test[i] for i in range(len(PHONE_DEF))]
+    class_counts_test = [labels_test[i] for i in range(1, 40)]
     plot_phoneme_distribution(
         class_counts_test,
         ROOT_DIR / "plots" / "phoneme_distribution_test_set_correctly_classified_by_RNN.png",
         "Phoneme Distribution in Test Set",
     )
 
-    print(f"\nlabels_train = {sorted(labels_train)}")
-    print(f"\nlabels_test = {sorted(labels_test)}")
+    # print(f"\nlabels_train = {sorted(labels_train)}")
+    # print(f"\nlabels_test = {sorted(labels_test)}")
 
-    if (
-        "generative_model_args_path" in args.keys()
-        and "generative_model_weights_path" in args.keys()
-        and "generative_model_n_samples" in args.keys()
-    ):
-        print("Use real and synthetic data ...")
+    # if (
+    #     "generative_model_args_path" in args.keys()
+    #     and "generative_model_weights_path" in args.keys()
+    #     and "generative_model_n_samples" in args.keys()
+    # ):
+    #     print("Use real and synthetic data ...")
 
-        gen_model = PhonemeImageGAN.load_model(
-            args_path=args["generative_model_args_path"],
-            weights_path=args["generative_model_weights_path"],
-        )
+    #     gen_model = PhonemeImageGAN.load_model(
+    #         args_path=args["generative_model_args_path"],
+    #         weights_path=args["generative_model_weights_path"],
+    #     )
 
-        # neural_window_shape = next(iter(train_dl_real))[0].size()
-        n_synthetic_samples = args["generative_model_n_samples"]
-        synthetic_ds = gen_model.create_synthetic_phoneme_dataset(
-            n_samples=n_synthetic_samples,
-            neural_window_shape=(32, 256),
-        )
-        synthetic_dl = DataLoader(
-            synthetic_ds,
-            batch_size=batch_size,
-            shuffle=True,
-            num_workers=0,
-            pin_memory=True,
-            collate_fn=None,
-        )
+    #     # neural_window_shape = next(iter(train_dl_real))[0].size()
+    #     n_synthetic_samples = args["generative_model_n_samples"]
+    #     synthetic_ds = gen_model.create_synthetic_phoneme_dataset(
+    #         n_samples=n_synthetic_samples,
+    #         neural_window_shape=(32, 256),
+    #     )
+    #     synthetic_dl = DataLoader(
+    #         synthetic_ds,
+    #         batch_size=batch_size,
+    #         shuffle=True,
+    #         num_workers=0,
+    #         pin_memory=True,
+    #         collate_fn=None,
+    #     )
 
-        train_dl = MergedDataLoader(train_dl_real, synthetic_dl)
-    else:
-        print("Use only real data ...")
-        train_dl = train_dl_real
+    #     train_dl = MergedDataLoader(train_dl_real, synthetic_dl)
+    # else:
+    #     print("Use only real data ...")
+    #     train_dl = train_dl_real
 
-    n_classes = len(phoneme_classes)
-    args["n_classes"] = n_classes
-    model = PhonemeClassifier(n_classes=n_classes).to(device)
+    # n_classes = len(phoneme_classes)
+    # args["n_classes"] = n_classes
+    # model = PhonemeClassifier(n_classes=n_classes).to(device)
 
-    n_epochs = args["n_epochs"]
-    lr = args["lr"]
-    optimizer = optim.Adam(model.parameters(), lr=lr)
-    criterion = nn.CrossEntropyLoss()
+    # n_epochs = args["n_epochs"]
+    # lr = args["lr"]
+    # optimizer = optim.Adam(model.parameters(), lr=lr)
+    # criterion = nn.CrossEntropyLoss()
 
-    with open(out_dir / "args", "wb") as file:
-        pickle.dump(args, file)
-    with open(out_dir / "args.json", "w") as file:
-        json.dump(args, file, indent=4)
+    # with open(out_dir / "args", "wb") as file:
+    #     pickle.dump(args, file)
+    # with open(out_dir / "args.json", "w") as file:
+    #     json.dump(args, file, indent=4)
 
-    output = train_model(
-        model=model,
-        train_dl=train_dl,
-        test_dl=test_dl,
-        n_classes=n_classes,
-        optimizer=optimizer,
-        criterion=criterion,
-        device=device,
-        out_dir=out_dir,
-        n_epochs=n_epochs,
-        patience=10,
-        model_classes=phoneme_classes,
-    )
-
-    best_auroc = output["best_auroc"]
+    # output = train_model(
+    #     model=model,
+    #     train_dl=train_dl,
+    #     test_dl=test_dl,
+    #     n_classes=n_classes,
+    #     optimizer=optimizer,
+    #     criterion=criterion,
+    #     device=device,
+    #     out_dir=out_dir,
+    #     n_epochs=n_epochs,
+    #     patience=args["patience"],
+    #     model_classes=phoneme_classes,
+    # )
 
 
 if __name__ == "__main__":
@@ -390,7 +434,7 @@ if __name__ == "__main__":
     for lr in [1e-4]:
         for batch_size in [64, 128]:
             for cls_weights in ["sqrt", None]:
-                for synthetic_data in [False, True]:
+                for synthetic_data in [True]:
 
                     now = datetime.now()
                     timestamp = now.strftime("%Y%m%d_%H%M%S")
@@ -400,10 +444,10 @@ if __name__ == "__main__":
                     )
                     if synthetic_data:
                         args["generative_model_args_path"] = (
-                            "/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_20240707_132459/args"
+                            "/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_20240708_103107/args"
                         )
                         args["generative_model_weights_path"] = (
-                            "/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_20240707_132459/modelWeights_epoch_1"
+                            "/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_20240708_103107/modelWeights_epoch_6"
                         )
                         args["generative_model_n_samples"] = 50_000
                         print(args["generative_model_weights_path"])
@@ -411,6 +455,7 @@ if __name__ == "__main__":
                     args["batch_size"] = batch_size
                     args["class_weights"] = cls_weights
                     args["transform"] = "softsign"
+                    args["patience"] = 20
 
                     # args["n_input_features"] = 41
                     # args["n_output_features"] = 256

@@ -138,14 +138,15 @@ class PhonemeImageGAN(nn.Module):
         phoneme_labels = []
 
         for _ in tqdm(range(n_samples), desc="Creating synthetic phoneme dataset with {n_samples} samples"):
-            phoneme_cls = np.random.choice(classes, p=label_distribution)
-            label = torch.tensor(phoneme_cls).unsqueeze(dim=0)
+            label = np.random.choice(classes, p=label_distribution)
+            label = torch.from_numpy(np.array([label])).to(self.device)
+            y = _get_indices_in_classes(label, torch.tensor(classes, device=label.device)).to(label.device)
 
-            neural_window = self.generate(label=label)
+            neural_window = self.generate(label=y)
             neural_window = neural_window.view(neural_window.size(0), *neural_window_shape)
 
             neural_windows.append(neural_window.to("cpu"))
-            phoneme_labels.append(torch.tensor(phoneme_cls, device="cpu"))
+            phoneme_labels.append(label.to("cpu"))
 
         return SyntheticPhonemeDataset(neural_windows, phoneme_labels)
 

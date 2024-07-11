@@ -1,13 +1,10 @@
 import json
 import pickle
-import random
 from datetime import datetime
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-import numpy as np
 import torch
-import torch.nn as nn
 
 from neural_decoder.dataset import PhonemeDataset
 from neural_decoder.neural_decoder_trainer import get_data_loader
@@ -28,7 +25,7 @@ def main(args: dict) -> None:
 
     device = args["device"]
     batch_size = args["batch_size"]
-    phoneme_cls = list(range(1, 40))
+    phoneme_cls = [10, 22]  # list(range(1, 40))
     args["phoneme_cls"] = phoneme_cls
 
     train_file = args["train_set_path"]
@@ -39,7 +36,7 @@ def main(args: dict) -> None:
     if args["transform"] == "softsign":
         transform = SoftsignTransform()
 
-    phoneme_ds_filter = {"correctness_value": ["C"], "phoneme_cls": list(range(1, 40))}
+    phoneme_ds_filter = {"correctness_value": ["C"], "phoneme_cls": phoneme_cls}
     if isinstance(phoneme_cls, int):
         phoneme_ds_filter["phoneme_cls"] = phoneme_cls
     args["phoneme_ds_filter"] = phoneme_ds_filter
@@ -81,6 +78,9 @@ def main(args: dict) -> None:
         clip_value=args["clip_value"],
         lr=args["lr"],
     )
+
+    # load or compute the average images
+    print(f"out_dir = {out_dir}")
 
     G_losses = []
     D_losses = []
@@ -140,7 +140,11 @@ def main(args: dict) -> None:
         gan.save_state_dict(file)
         # torch.save(gan.state_dict(), file)
 
-    plot_gan_losses(G_losses, D_losses, out_file=ROOT_DIR / "plots" / "data_visualization" / "gan_losses.png")
+    plot_gan_losses(
+        G_losses,
+        D_losses,
+        out_file=ROOT_DIR / "plots" / "data_visualization" / f"gan_losses_nclasses_{len(phoneme_cls)}.png",
+    )
 
 
 def plot_gan_losses(g_losses: list, d_losses: list, out_file: Path) -> None:
@@ -162,15 +166,10 @@ if __name__ == "__main__":
     args = {}
     args["seed"] = 0
     args["device"] = "cuda"
-    args["train_set_path"] = (
-        "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
-    )
-    args["test_set_path"] = (
-        "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
-    )
-    args["output_dir"] = f"/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_{timestamp}"
+
+    args["n_classes"] = 2
+
     args["batch_size"] = 16
-    args["n_classes"] = 39
     # args["n_output_features"] = 256
     # args["hidden_dim"] = 512
     # args["n_layers"] =
@@ -186,7 +185,17 @@ if __name__ == "__main__":
     args["lr_discriminator"] = 0.0001
     args["lr"] = 0.0001
     args["clip_value"] = 0.01
-    args["n_critic"] = 5
+    args["n_critic"] = 1
     args["transform"] = "softsign"
+
+    args["train_set_path"] = (
+        "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
+    )
+    args["test_set_path"] = (
+        "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
+    )
+    args["output_dir"] = (
+        f"/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_{timestamp}__nclasses_{args['n_classes']}"
+    )
 
     main(args)
