@@ -41,7 +41,8 @@ CHANNEL_ORDER = [
 
 
 def reorder_neural_window(X):
-    assert X.size() == (256, 32)
+    print(f"X.size() = {X.size()}")
+    assert X.size() == (256, 32), f"size should be (256, 32) but is: {X.size()}"
     reordered_tensor = torch.empty_like(X)
     reordered_tensor[:128] = X[CHANNEL_ORDER]
     reordered_tensor[128:] = X[[i + 128 for i in CHANNEL_ORDER]]

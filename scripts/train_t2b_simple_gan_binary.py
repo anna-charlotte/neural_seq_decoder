@@ -38,6 +38,55 @@ def weights_init(m):
         nn.init.constant_(m.bias.data, 0)
 
 
+# # Define a Residual Block
+# class ResidualBlock(nn.Module):
+#     def __init__(self, in_channels):
+#         super(ResidualBlock, self).__init__()
+#         self.block = nn.Sequential(
+#             nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1, bias=False),
+#             nn.BatchNorm2d(in_channels),
+#             nn.ReLU(inplace=True),
+#             nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1, bias=False),
+#             nn.BatchNorm2d(in_channels)
+#         )
+
+#     def forward(self, x):
+#         return x + self.block(x)
+
+# # Generator with Residual Blocks
+# class Generator(nn.Module):
+#     def __init__(self, ngpu, nz, ngf, nc):
+#         super(Generator, self).__init__()
+#         self.ngpu = ngpu
+#         self.main = nn.Sequential(
+#             nn.ConvTranspose2d(nz, ngf * 8, kernel_size=(8, 4), stride=(1, 1), padding=0, bias=False),  # (8, 4)
+#             nn.BatchNorm2d(ngf * 8),
+#             nn.ReLU(True),
+#             ResidualBlock(ngf * 8),
+            
+#             nn.ConvTranspose2d(ngf * 8, ngf * 4, kernel_size=(4, 4), stride=(2, 2), padding=1, bias=False),  # (16, 8)
+#             nn.BatchNorm2d(ngf * 4),
+#             nn.ReLU(True),
+#             ResidualBlock(ngf * 4),
+            
+#             nn.ConvTranspose2d(ngf * 4, ngf * 2, kernel_size=(4, 4), stride=(2, 2), padding=1, bias=False),  # (32, 16)
+#             nn.BatchNorm2d(ngf * 2),
+#             nn.ReLU(True),
+#             ResidualBlock(ngf * 2),
+            
+#             nn.ConvTranspose2d(ngf * 2, ngf, kernel_size=(4, 3), stride=(2, 1), padding=(1, 1), bias=False),  # (64, 16)
+#             nn.BatchNorm2d(ngf),
+#             nn.ReLU(True),
+#             ResidualBlock(ngf),
+            
+#             nn.ConvTranspose2d(ngf, nc, kernel_size=(6, 4), stride=(4, 2), padding=1, bias=False),  # (256, 32)
+#             nn.Tanh()
+#         )
+
+#     def forward(self, input):
+#         return self.main(input)
+
+
 # Generator Code
 class Generator(nn.Module):
     def __init__(self, ngpu, nz, ngf, nc):
@@ -67,8 +116,8 @@ class Generator(nn.Module):
 
     def forward(self, input):
         return self.main(input)
-    
-    
+
+
 class Discriminator(nn.Module):
     def __init__(self, ngpu, nc, ndf):
         super(Discriminator, self).__init__()
@@ -96,6 +145,7 @@ class Discriminator(nn.Module):
 
     def forward(self, input):
         return self.main(input)
+
 
 
 def compute_distances(
@@ -140,6 +190,65 @@ def compute_distances(
             print(f"curr_dist = {curr_dist}")
         
 
+class Generator64(nn.Module):
+    def __init__(self, ngpu, nz, ngf, nc):
+        super(Generator64, self).__init__()
+        self.ngpu = ngpu
+        self.main = nn.Sequential(
+            # input is Z, going into a convolution
+            nn.ConvTranspose2d( nz, ngf * 8, 4, 1, 0, bias=False),
+            nn.BatchNorm2d(ngf * 8),
+            nn.ReLU(True),
+            # state size. ``(ngf*8) x 4 x 4``
+            nn.ConvTranspose2d(ngf * 8, ngf * 4, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ngf * 4),
+            nn.ReLU(True),
+            # state size. ``(ngf*4) x 8 x 8``
+            nn.ConvTranspose2d( ngf * 4, ngf * 2, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ngf * 2),
+            nn.ReLU(True),
+            # state size. ``(ngf*2) x 16 x 16``
+            nn.ConvTranspose2d( ngf * 2, ngf, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ngf),
+            nn.ReLU(True),
+            # state size. ``(ngf) x 32 x 32``
+            nn.ConvTranspose2d( ngf, nc, 4, 2, 1, bias=False),
+            nn.Tanh()
+            # state size. ``(nc) x 64 x 64``
+        )
+
+    def forward(self, input):
+        return self.main(input)
+
+    
+class Discriminator64(nn.Module):
+    def __init__(self, ngpu, nc, ndf):
+        super(Discriminator64, self).__init__()
+        self.ngpu = ngpu
+        self.main = nn.Sequential(
+            # input is ``(nc) x 64 x 64``
+            nn.Conv2d(nc, ndf, 4, 2, 1, bias=False),
+            nn.LeakyReLU(0.2, inplace=True),
+            # state size. ``(ndf) x 32 x 32``
+            nn.Conv2d(ndf, ndf * 2, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ndf * 2),
+            nn.LeakyReLU(0.2, inplace=True),
+            # state size. ``(ndf*2) x 16 x 16``
+            nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ndf * 4),
+            nn.LeakyReLU(0.2, inplace=True),
+            # state size. ``(ndf*4) x 8 x 8``
+            nn.Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ndf * 8),
+            nn.LeakyReLU(0.2, inplace=True),
+            # state size. ``(ndf*8) x 4 x 4``
+            nn.Conv2d(ndf * 8, 1, 4, 1, 0, bias=False),
+            nn.Sigmoid()
+        )
+
+    def forward(self, input):
+        return self.main(input)
+
 
 def plot_neural_window(window, out_file, title):
     plt.figure(figsize=(10, 6))
@@ -160,15 +269,14 @@ def plot_neural_window(window, out_file, title):
 def main(args: dict) -> None:
 
     set_seeds(args["seed"])
-    torch.use_deterministic_algorithms(True)
+    # torch.use_deterministic_algorithms(True)
 
     out_dir = Path(args["output_dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
     print(f"out_dir = {out_dir}")
 
-    now = datetime.now()
-    timestamp = now.strftime("%Y%m%d_%H%M%S")
-    eval_dir = ROOT_DIR / "evaluation" / "gan_binary" / f"{timestamp}"
+    timestamp = args["timestamp"]
+    eval_dir = ROOT_DIR / "evaluation" / "gan_binary" / f"{timestamp}__lrd_{args['lr_d']}__lrg_{args['lr_g']}__with_64x64_DCGAN"
     eval_dir.mkdir(parents=True, exist_ok=True)
     print(f"eval_dir = {eval_dir}")
 
@@ -179,7 +287,8 @@ def main(args: dict) -> None:
     nz = args["nz"]
     ngf = args["ngf"]
     ndf = args["ndf"]
-    lr = args["lr"]
+    lr_d = args["lr_d"]
+    lr_g = args["lr_g"]
     beta1 = args["beta1"]
     num_epochs = args["num_epochs"]
 
@@ -218,14 +327,19 @@ def main(args: dict) -> None:
     phoneme2avg_window = {p: phoneme2avg_window[p]["avg_window"] for p in phoneme2avg_window.keys()}
 
     # Create the generator
-    netG = Generator(ngpu=1, nz=nz, ngf=ngf, nc=nc).to(device)
+    # netG = Generator(ngpu=1, nz=nz, ngf=ngf, nc=nc).to(device)
+    # netG = Generator(ngpu=1).to(device)
+    netG = Generator64(ngpu=1, nz=nz, ngf=ngf, nc=nc).to(device)
+
     netG.apply(weights_init)
-    print(netG)
     
     # Create the Discriminator
-    netD = Discriminator(ngpu=1, nc=nc, ndf=ndf).to(device)
+    # netD = Discriminator(ngpu=1, nc=nc, ndf=ndf).to(device)
+    # netD = Discriminator(ngpu=1).to(device)
+    netD = Discriminator64(ngpu=1, nc=nc, ndf=ndf).to(device)
     netD.apply(weights_init)
     print(netD)
+    print(netG)
 
     criterion = nn.BCELoss()
 
@@ -237,8 +351,8 @@ def main(args: dict) -> None:
     fake_label = 0.
 
     # setup Adam optimizers for both G and D
-    optimizerD = optim.Adam(netD.parameters(), lr=lr, betas=(beta1, 0.999))
-    optimizerG = optim.Adam(netG.parameters(), lr=lr, betas=(beta1, 0.999))
+    optimizerD = optim.Adam(netD.parameters(), lr=lr_d, betas=(beta1, 0.999))
+    optimizerG = optim.Adam(netG.parameters(), lr=lr_g, betas=(beta1, 0.999))
 
     # training loop
     G_losses = []
@@ -255,8 +369,15 @@ def main(args: dict) -> None:
             # (1) Update D network: maximize log(D(x)) + log(1 - D(G(z)))
             ###########################
             ## Train with all-real batch
-            X, _, _, _ = data
-            X = X.to(device)
+            X_full, _, _, _ = data
+            X_full = X_full.to(device)
+
+            # Extract the first 128 rows
+            X = X_full[:, :, :128, :]
+
+            # Reshape to (64, 64)
+            X = X.view(-1, 64, 64)
+            X = X.unsqueeze(1).repeat(1, 3, 1, 1)
 
             netD.zero_grad()
             real_cpu = X.to(device)
@@ -303,14 +424,28 @@ def main(args: dict) -> None:
                         eval_dir / f"generated_image_epoch_{epoch}_batch_{i}.png",
                         f"Generated image (epoch: {epoch}, batch: {i})"
                     )
+                    if i == 0:
+                        for i in range(len(X)):
+                            print(f"X_full.size() = {X_full.size()}")
+                            plot_neural_window(
+                                X_full[i][0].to("cpu"), 
+                                eval_dir / f"0true_image_{i}_256_32.png",
+                                f"True image"
+                            )
+                        for i in range(len(X)):
+                            plot_neural_window(
+                                X[0][0].to("cpu"), 
+                                eval_dir / f"0true_image_{i}_64_64.png",
+                                f"True image (cropped)"
+                            )
 
                 # compute distances and print
                 
-                compute_distances(
-                    phoneme2avg_window,
-                    {phoneme_cls[0]: s for s in fake},
-                    distance_metric='cosine_sim',
-                )
+                # compute_distances(
+                #     phoneme2avg_window,
+                #     {phoneme_cls[0]: s for s in fake},
+                #     distance_metric='cosine_sim',
+                # )
 
             # Save Losses for plotting later
             G_losses.append(errG.item())
@@ -331,104 +466,44 @@ def main(args: dict) -> None:
     plt.savefig(eval_dir / f"gan_losses_binary.png")
 
 
-
-    # G_losses = []
-    # D_losses = []
-    # # noise_vector = torch.randn(1, gan._g.latent_dim, device=gan.device)
-    # n_epochs = args["n_epochs"]
-
-    # with open(out_dir / "args", "wb") as file:
-    #     pickle.dump(args, file)
-    # with open(out_dir / "args.json", "w") as file:
-    #     json.dump(args, file, indent=4)
-
-    # for epoch in range(n_epochs):
-    #     print(f"epoch = {epoch}")
-    #     for i, data in enumerate(train_dl):
-    #         errD, errG = gan(data)
-
-    #         # output training stats
-    #         if i % 250 == 0:
-    #             print(
-    #                 f"[{epoch}/{n_epochs}][{i}/{len(train_dl)}] Loss_D: {errD.item()} Loss_G: {errG.item()}"
-    #             )
-
-    #         #     phoneme = 2
-    #         #     signal = gan._g(noise_vector, torch.tensor([phoneme]).to(device))
-    #         #     plot_brain_signal_animation(
-    #         #         signal=signal,
-    #         #         save_path=ROOT_DIR
-    #         #         / "plots"
-    #         #         / "data_visualization"
-    #         #         / f"phone_{phoneme}_FAKE_ep{epoch}_i_{i}.gif",
-    #         #         title=f"Phoneme {phoneme}, Frame",
-    #         #     )
-
-    #         # if i == 0:
-    #         #     X, _, _, _ = data
-
-    #         #     phoneme = 2
-    #         #     for j in range(X.size(0)):
-    #         #         sub_signal = X[j, :, :]
-    #         #         print(sub_signal.size())
-    #         #         plot_brain_signal_animation(
-    #         #             signal=sub_signal,
-    #         #             save_path=ROOT_DIR
-    #         #             / "plots"
-    #         #             / "data_visualization"
-    #         #             / f"phone_{phoneme}_REAL_sample_{j}.gif",
-    #         #             title=f"Real sample, Phoneme {phoneme}, Frame",
-    #         #         )
-
-    #         # save losses for plotting
-    #         G_losses.append(errG.item())
-    #         D_losses.append(errD.item())
-
-    #     # save GAN
-    #     file = out_dir / f"modelWeights_epoch_{epoch}"
-    #     print(f"Storing GAN weights to: {file}")
-    #     gan.save_state_dict(file)
-    #     # torch.save(gan.state_dict(), file)
-
-    # plot_gan_losses(G_losses, D_losses, out_file=ROOT_DIR / "plots" / "data_visualization" / f"gan_losses_nclasses_{len(phoneme_cls)}.png")
-
-
-
 if __name__ == "__main__":
-    now = datetime.now()
-    timestamp = now.strftime("%Y%m%d_%H%M%S")
+    for lr_d, lr_g in zip([0.0002, 0.00001, 0.00001,  0.00001, 0.00002, 0.00002, 0.00005, 0.00005, 0.00005], [0.0002, 0.0001, 0.0002, 0.00005, 0.0001, 0.0002, 0.0001, 0.0002, 0.0005]):
+        now = datetime.now()
+        timestamp = now.strftime("%Y%m%d_%H%M%S")
 
-    print("in main ...")
-    args = {}
-    args["seed"] = 0
-    args["device"] = "cuda"
-    
-    args["n_classes"] = 2
-    args["phoneme_cls"] = [3]  # 10: "DH", 22: "M"
+        print("in main ...")
+        args = {}
+        args["seed"] = 0
+        args["device"] = "cuda"
+        
+        args["n_classes"] = 2
+        args["phoneme_cls"] = [31]  # 10: "DH", 22: "M"
 
-    args["batch_size"] = 128
-    args["n_channels"] = 128
+        args["batch_size"] = 128
+        args["n_channels"] = 128
 
-    args["nc"] = 1  
-    args["nz"] = 100  # args["latent_dim"] = 100
-    args["ngf"] = 64
-    args["ndf"] = 64
+        args["nc"] = 3 #1 
+        args["nz"] = 100  # args["latent_dim"] = 100
+        args["ngf"] = 64
+        args["ndf"] = 64
 
-    args["num_epochs"] = 50
-    # args["lr_generator"] = 0.0001
-    # args["lr_discriminator"] = 0.0001
-    args["lr"] = 0.0002
-    args["beta1"] = 0.5
-    # args["clip_value"] = 0.01
-    # args["n_critic"] = 1
-    args["transform"] = "softsign"
+        args["num_epochs"] = 150
+        # args["lr_generator"] = 0.0001
+        # args["lr_discriminator"] = 0.0001
+        args["lr_g"] = lr_g  # 0.0002
+        args["lr_d"] = lr_d  # 0.00002
+        args["beta1"] = 0.5
+        # args["clip_value"] = 0.01
+        # args["n_critic"] = 1
+        args["transform"] = "softsign"
 
-    args["train_set_path"] = (
-        "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
-    )
-    args["test_set_path"] = (
-        "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
-    )
-    args["output_dir"] = f"/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_{timestamp}__nclasses_{args['n_classes']}"
+        args["train_set_path"] = (
+            "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
+        )
+        args["test_set_path"] = (
+            "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
+        )
+        args["output_dir"] = f"/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_{timestamp}__nclasses_{args['n_classes']}__with_64x64_DCGAN"
+        args["timestamp"] = timestamp
 
-    main(args)
+        main(args)

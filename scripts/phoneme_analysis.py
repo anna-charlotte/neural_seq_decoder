@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 import torch
+from torchvision import transforms
 
 from neural_decoder.dataset import PhonemeDataset
 from neural_decoder.neural_decoder_trainer import get_data_loader
@@ -21,6 +22,7 @@ from neural_decoder.phoneme_utils import (
     load_averaged_windows_for_all_classes,
     save_averaged_windows_for_all_classes
 )
+from neural_decoder.transforms import ReorderChannelTransform, SoftsignTransform, TransposeTransform, AddOneDimensionTransform
 
 DISTANCE_METRICS = ["frobenius", "cosine_sim", "manhattan", "mse"]
 
@@ -80,9 +82,8 @@ def plot_heatmap(
 def compute_distances(
     averaged: Dict[int, torch.Tensor],
     samples: Dict[int, List[torch.Tensor]],
+    out_dir: Path,
     distance_metric: str,
-    out_dir: Path = None,
-    verbose: bool = False
 ):
     true_classes = []
     closest_classes = []
@@ -116,44 +117,39 @@ def compute_distances(
             for rank, (dist, kls) in enumerate(sorted_distances):
                 if kls == sample_phoneme_cls:
                     curr_rank = rank
-                    curr_dist = dist
                     break
             if curr_rank is None:
                 raise ValueError("No rank found!")
             else:
-                if verbose:
-                    print(f"curr_rank = {curr_rank}")
-                    print(f"curr_dist = {curr_dist}")
                 ranks.append(curr_rank)
 
             closest_class = distances.index(min(distances))
             true_classes.append(sample_phoneme_cls)
             closest_classes.append(closest_class)
 
-    if out_dir is not None:
-        plot_heatmap(
-            true_classes,
-            closest_classes,
-            n_classes=len(averaged),
-            out_file=out_dir / f"true_vs_closest_classes__{distance_metric}.png",
-            title=f"Heatmap of True Classes vs Closest Classes (distance: {distance_metric})",
-            xlabel="True Classes",
-            ylabel="Closest Classes",
-            xticks=PHONE_DEF,
-            yticks=PHONE_DEF,
-        )
+    plot_heatmap(
+        true_classes,
+        closest_classes,
+        n_classes=len(averaged),
+        out_file=out_dir / f"true_vs_closest_classes__{distance_metric}.png",
+        title=f"Heatmap of True Classes vs Closest Classes (distance: {distance_metric})",
+        xlabel="True Classes",
+        ylabel="Closest Classes",
+        xticks=PHONE_DEF,
+        yticks=PHONE_DEF,
+    )
 
-        plot_heatmap(
-            true_classes,
-            ranks,
-            n_classes=len(averaged),
-            out_file=out_dir / f"true_vs_ranks__{distance_metric}.png",
-            title=f"Heatmap of True Classes vs rank (distance: {distance_metric})",
-            xlabel="True classes",
-            ylabel="Rank of the distance to the true class",
-            xticks=PHONE_DEF,
-            yticks=range(1, len(averaged) + 1),
-        )
+    plot_heatmap(
+        true_classes,
+        ranks,
+        n_classes=len(averaged),
+        out_file=out_dir / f"true_vs_ranks__{distance_metric}.png",
+        title=f"Heatmap of True Classes vs rank (distance: {distance_metric})",
+        xlabel="True classes",
+        ylabel="Rank of the distance to the true class",
+        xticks=PHONE_DEF,
+        yticks=range(1, len(averaged) + 1),
+    )
 
 
 def extract_samples_for_each_label(train_file: Path, n_samples: int, classes: list, reorder_channels: bool):
@@ -190,7 +186,7 @@ def extract_samples_for_each_label(train_file: Path, n_samples: int, classes: li
     return samples_per_label
 
 
-def plotneural_window(window, out_file, title):
+def plot_neural_window(window, out_file, title):
     plt.figure(figsize=(10, 6))
     plt.imshow(
         window, cmap="plasma", aspect="auto"
@@ -259,8 +255,51 @@ def main(args: dict) -> None:
     print("Done.")
 
     sample_windows_per_phoneme = extract_samples_for_each_label(
-        args["train_set_path"], 1600, phoneme_classes, reorder_channels=True
+        args["train_set_path"], 13, range(0, 41), reorder_channels=True
     )
+    transform = transforms.Compose([
+        # TransposeTransform(), 
+        # ReorderChannelTransform(),
+        # AddOneDimensionTransform(dim=0),
+        SoftsignTransform()
+    ])
+
+    print(f"Plotting the sample windows ...")
+    for phoneme_cls in phoneme_classes:
+        samples = sample_windows_per_phoneme[phoneme_cls][:10]
+        print(f"len(samples) = {len(samples)}")
+        for i, s in enumerate(samples):
+            s = s.squeeze()
+            print(f"s.size() = {s.size()}")
+            s = transform(s)
+            print(f"s.size() = {s.size()}")
+            s = s.squeeze()
+            print(f"s.size() = {s.size()}")
+
+            phoneme_name = f"{phoneme_cls}" if phoneme_cls == 0 else f'"{PHONE_DEF_SIL[phoneme_cls-1]}" ({phoneme_cls})'
+            title = f"Sample neural window (softsign) for phoneme class {phoneme_name}"
+            sample_dir = ROOT_DIR / "plots" / "sample_windows_per_phoneme" / f"sample_windows_softsign__phoneme_{phoneme_cls}"
+            sample_dir.mkdir(parents=True, exist_ok=True)
+            out_file = sample_dir / f"sample_window_softsign__phoneme_{phoneme_cls}__sample_{i}.png"
+            plot_neural_window(s, out_file, title)
+
+
+    print(f"Plotting the sample windows ...")
+    for phoneme_cls in phoneme_classes:
+        samples = sample_windows_per_phoneme[phoneme_cls][:10]
+        print(f"len(samples) = {len(samples)}")
+        for i, s in enumerate(samples):
+            s = s.squeeze()
+            print(f"s.size()")
+            s = transform(s)
+            s = s.squeeze()
+
+            phoneme_name = f"{phoneme_cls}" if phoneme_cls == 0 else f'"{PHONE_DEF_SIL[phoneme_cls-1]}" ({phoneme_cls})'
+            title = f"Sample neural window for phoneme class {phoneme_name}"
+            sample_dir = ROOT_DIR / "plots" / f"samples_windows_phoneme_{phoneme_cls}"
+            sample_dir.mkdir(parents=True, exist_ok=True)
+            out_file = sample_dir / f"sample_window_phoneme_{phoneme_cls}__sample_{i}.png"
+            plot_neural_window(s, out_file, title)
 
     # label index to windows
     all_averaged_windows = {i: phoneme2avg_window[p]["avg_window"] for i, p in enumerate(phoneme_classes)}
