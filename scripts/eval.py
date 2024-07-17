@@ -10,7 +10,7 @@ from edit_distance import SequenceMatcher
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from neural_decoder.dataset import SpeechDataset
+from neural_decoder.data.dataset import SpeechDataset
 from neural_decoder.neural_decoder_trainer import get_dataset_loaders, loadModel
 from neural_decoder.phoneme_utils import assign_correctness_values
 

@@ -6,7 +6,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import torch
 
-from neural_decoder.dataset import PhonemeDataset
+from neural_decoder.data.dataset import PhonemeDataset
 from neural_decoder.neural_decoder_trainer import get_data_loader
 from neural_decoder.phoneme_utils import ROOT_DIR
 from neural_decoder.transforms import SoftsignTransform

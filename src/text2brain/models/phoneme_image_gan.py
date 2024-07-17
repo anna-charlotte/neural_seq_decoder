@@ -10,7 +10,7 @@ import torch.optim as optim
 import torch.utils.data
 from tqdm import tqdm
 
-from neural_decoder.dataset import SyntheticPhonemeDataset
+from neural_decoder.data.dataset import SyntheticPhonemeDataset
 
 
 def phonemes_to_signal(model, phonemes: list, signal_shape: Tuple[int, ...] = (32, 16, 16)) -> torch.Tensor:

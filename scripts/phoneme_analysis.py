@@ -11,7 +11,7 @@ import seaborn as sns
 import torch
 from torchvision import transforms
 
-from neural_decoder.dataset import PhonemeDataset
+from neural_decoder.data.dataset import PhonemeDataset
 from neural_decoder.neural_decoder_trainer import get_data_loader
 from neural_decoder.phoneme_utils import (
     DISTANCE_METRICS,

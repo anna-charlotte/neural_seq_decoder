@@ -10,8 +10,8 @@ import torch
 from edit_distance import SequenceMatcher
 from torch.utils.data import DataLoader, WeightedRandomSampler
 
-from neural_decoder.dataloader import MergedDataLoader
-from neural_decoder.dataset import PhonemeDataset, SpeechDataset, _padding
+from neural_decoder.data.dataloader import MergedDataLoader
+from neural_decoder.data.dataset import PhonemeDataset, SpeechDataset, _padding
 from neural_decoder.model import GRUDecoder
 
 
