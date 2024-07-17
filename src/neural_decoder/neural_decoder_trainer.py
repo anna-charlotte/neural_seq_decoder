@@ -1,3 +1,4 @@
+import json
 import os
 import pickle
 import time
@@ -9,8 +10,9 @@ import torch
 from edit_distance import SequenceMatcher
 from torch.utils.data import DataLoader, WeightedRandomSampler
 
-from .dataset import PhonemeDataset, SpeechDataset, _padding
-from .model import GRUDecoder
+from neural_decoder.dataloader import MergedDataLoader
+from neural_decoder.dataset import PhonemeDataset, SpeechDataset, _padding
+from neural_decoder.model import GRUDecoder
 
 
 def get_data_loader(
@@ -20,9 +22,12 @@ def get_data_loader(
     collate_fn: callable,
     transform: callable = None,
     dataset_cls: Type[Any] = SpeechDataset,
-    phoneme_ds_filter: dict = {},
+    phoneme_ds_filter: dict = None,
     class_weights=None,
 ) -> DataLoader:
+    if phoneme_ds_filter is None:
+        phoneme_ds_filter = {}
+
     if dataset_cls == SpeechDataset:
         ds = SpeechDataset(data, transform=transform)
     elif dataset_cls == PhonemeDataset:

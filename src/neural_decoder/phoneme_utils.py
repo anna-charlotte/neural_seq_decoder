@@ -1,8 +1,12 @@
 import difflib
+import pickle
 from pathlib import Path
 from typing import List, Tuple
 
 import torch
+
+from neural_decoder.dataset import PhonemeDataset
+from neural_decoder.neural_decoder_trainer import get_data_loader
 
 ROOT_DIR = Path(__file__).parent.parent.parent
 
@@ -39,21 +43,23 @@ CHANNEL_ORDER = [
 ]
 # fmt: on
 
+DISTANCE_METRICS = ["frobenius", "cosine_sim", "manhattan", "mse"]
 
-def reorder_neural_window(X):
-    print(f"X.size() = {X.size()}")
-    assert X.size() == (256, 32), f"size should be (256, 32) but is: {X.size()}"
-    reordered_tensor = torch.empty_like(X)
-    reordered_tensor[:128] = X[CHANNEL_ORDER]
-    reordered_tensor[128:] = X[[i + 128 for i in CHANNEL_ORDER]]
+
+def reorder_neural_window(tensor: torch.Tensor) -> torch.Tensor:
+    print(f"tensor.size() = {tensor.size()}")
+    assert tensor.size() == (256, 32), f"size should be (256, 32) but is: {tensor.size()}"
+    reordered_tensor = torch.empty_like(tensor)
+    reordered_tensor[:128] = tensor[CHANNEL_ORDER]
+    reordered_tensor[128:] = tensor[[i + 128 for i in CHANNEL_ORDER]]
     return reordered_tensor
 
 
-def phone_to_id(p: str):
+def phone_to_id(p: str) -> int:
     return PHONE_DEF_SIL.index(p)
 
 
-def id_to_phone(idx: int):
+def id_to_phone(idx: int) -> str:
     assert idx in range(0, len(PHONE_DEF_SIL))
     return PHONE_DEF_SIL[idx]
 
@@ -129,7 +135,6 @@ def assign_correctness_values(
             correctness_values[idx] = "S"
 
     return correctness_values
-
 
 
 def save_averaged_windows_for_all_classes(train_file: Path, reorder_channels: bool, out_file: Path):

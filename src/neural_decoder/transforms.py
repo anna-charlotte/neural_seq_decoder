@@ -4,6 +4,10 @@ from neural_decoder.phoneme_utils import reorder_neural_window
 
 
 class SoftsignTransform:
+    """
+    The softsign transform maps the input to a range between -1 and 1.
+    """
+
     def __init__(self):
         self.softsign = nn.Softsign()
 
@@ -11,7 +15,11 @@ class SoftsignTransform:
         return self.softsign(sample)
 
 
-class ReorderChannelTransform():
+class ReorderChannelTransform:
+    """
+    Reorder the channels from area 6v by the given ordering.
+    """
+
     def __init__(self):
         self.reorder = reorder_neural_window
 

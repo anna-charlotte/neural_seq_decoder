@@ -26,70 +26,8 @@ from neural_decoder.model_phoneme_classifier import PhonemeClassifier
 from neural_decoder.neural_decoder_trainer import get_data_loader
 from neural_decoder.phoneme_utils import PHONE_DEF, ROOT_DIR
 from text2brain.models.phoneme_image_gan import _get_indices_in_classes
+from text2brain.visualization import plot_accuracies, plot_metric_of_multiple_models
 from utils import set_seeds
-
-
-def plot_accuracies(
-    accs,
-    out_file: Path,
-    title: str = "Phoneme Classification - Test Accuracies",
-    x_label: str = "Phoneme",
-    y_label: str = "Test Accuracy",
-) -> None:
-    plt.figure(figsize=(12, 6))
-    sns.barplot(x=PHONE_DEF, y=accs, palette="muted")
-
-    plt.xticks(rotation=90)
-    plt.xlabel(x_label)
-    plt.ylabel(y_label)
-    plt.title(title)
-    plt.grid(True)
-    plt.tight_layout()
-
-    plt.savefig(out_file)
-
-
-def plot_metric_of_multiple_models(
-    model_names: List[str],
-    values: list,
-    classes: list,
-    title: str,
-    out_file: Path,
-    xlabel: str = "classes",
-    ylabel: str = "accuracy",
-) -> None:
-
-    # Colors for the bars for each model
-    colors = ["blue", "orange", "green", "red", "purple"]
-
-    # Number of classes and models
-    n_classes = len(classes)
-    n_models = len(model_names)
-
-    # Set the positions of the bars on the x-axis
-    bar_width = 0.8 / n_models  # Adjust bar width based on the number of models
-    index = np.arange(n_classes)
-
-    # Plotting the bars
-    fig, ax = plt.subplots(figsize=(12, 6))
-    for i, (model, vals) in enumerate(zip(model_names, values)):
-        ax.bar(index + i * bar_width, vals, bar_width, label=model, color=colors[i % len(colors)])
-
-    # Adding labels, title, and custom x-axis tick labels
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel(ylabel)
-    ax.set_title(title)
-    ax.set_xticks(index + bar_width * (n_models - 1) / 2)
-    ax.set_xticklabels(classes)
-    ax.legend()
-
-    # Adding a grid for better readability
-    ax.grid(axis="y", linestyle="--", alpha=0.7)
-
-    # Display the plot
-    plt.tight_layout()
-    print(f"Saving plot to: {out_file}")
-    plt.savefig(out_file)
 
 
 def main() -> None:

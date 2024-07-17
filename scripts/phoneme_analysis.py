@@ -2,7 +2,6 @@
 
 import pickle
 import random
-from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List
 
@@ -15,16 +14,21 @@ from torchvision import transforms
 from neural_decoder.dataset import PhonemeDataset
 from neural_decoder.neural_decoder_trainer import get_data_loader
 from neural_decoder.phoneme_utils import (
+    DISTANCE_METRICS,
     PHONE_DEF,
     PHONE_DEF_SIL,
     ROOT_DIR,
-    reorder_neural_window,
     load_averaged_windows_for_all_classes,
-    save_averaged_windows_for_all_classes
+    reorder_neural_window,
+    save_averaged_windows_for_all_classes,
 )
-from neural_decoder.transforms import ReorderChannelTransform, SoftsignTransform, TransposeTransform, AddOneDimensionTransform
-
-DISTANCE_METRICS = ["frobenius", "cosine_sim", "manhattan", "mse"]
+from neural_decoder.transforms import (
+    AddOneDimensionTransform,
+    ReorderChannelTransform,
+    SoftsignTransform,
+    TransposeTransform,
+)
+from text2brain.visualization import plot_neural_window
 
 
 def softmax(logits):
@@ -186,23 +190,7 @@ def extract_samples_for_each_label(train_file: Path, n_samples: int, classes: li
     return samples_per_label
 
 
-def plot_neural_window(window, out_file, title):
-    plt.figure(figsize=(10, 6))
-    plt.imshow(
-        window, cmap="plasma", aspect="auto"
-    )  # , vmin=overall_min_value, vmax=overall_max_value)
-    plt.colorbar()
-    
-    plt.title(title)
-    plt.xlabel("Timestep")
-    plt.ylabel("Channel")
-
-    plt.savefig(out_file)
-    plt.close()
-
-
 def main(args: dict) -> None:
-
     random.seed(args["seed"])
     np.random.seed(args["seed"])
     torch.manual_seed(args["seed"])
@@ -247,9 +235,16 @@ def main(args: dict) -> None:
         avg_window = phoneme2avg_window[phoneme_cls]["avg_window"]
         n_samples = phoneme2avg_window[phoneme_cls]["n_samples"]
 
-        phoneme_name = f"{phoneme_cls}" if phoneme_cls == 0 else f'"{PHONE_DEF_SIL[phoneme_cls-1]}" ({phoneme_cls})'
+        phoneme_name = (
+            f"{phoneme_cls}" if phoneme_cls == 0 else f'"{PHONE_DEF_SIL[phoneme_cls-1]}" ({phoneme_cls})'
+        )
         title = f"Averaged neural window for phoneme class {phoneme_name} (averaged over {n_samples} samples)"
-        out_file = ROOT_DIR / "plots" / "averaged_windows_per_phoneme_with_channel_reordering__different_ranges_on_plots" / f"averaged_window_phoneme_{phoneme_cls}.png"
+        out_file = (
+            ROOT_DIR
+            / "plots"
+            / "averaged_windows_per_phoneme_with_channel_reordering__different_ranges_on_plots"
+            / f"averaged_window_phoneme_{phoneme_cls}.png"
+        )
         plot_neural_window(avg_window, out_file, title)
 
     print("Done.")
@@ -257,12 +252,14 @@ def main(args: dict) -> None:
     sample_windows_per_phoneme = extract_samples_for_each_label(
         args["train_set_path"], 13, range(0, 41), reorder_channels=True
     )
-    transform = transforms.Compose([
-        # TransposeTransform(), 
-        # ReorderChannelTransform(),
-        # AddOneDimensionTransform(dim=0),
-        SoftsignTransform()
-    ])
+    transform = transforms.Compose(
+        [
+            # TransposeTransform(),
+            # ReorderChannelTransform(),
+            # AddOneDimensionTransform(dim=0),
+            SoftsignTransform()
+        ]
+    )
 
     print(f"Plotting the sample windows ...")
     for phoneme_cls in phoneme_classes:
@@ -276,13 +273,19 @@ def main(args: dict) -> None:
             s = s.squeeze()
             print(f"s.size() = {s.size()}")
 
-            phoneme_name = f"{phoneme_cls}" if phoneme_cls == 0 else f'"{PHONE_DEF_SIL[phoneme_cls-1]}" ({phoneme_cls})'
+            phoneme_name = (
+                f"{phoneme_cls}" if phoneme_cls == 0 else f'"{PHONE_DEF_SIL[phoneme_cls-1]}" ({phoneme_cls})'
+            )
             title = f"Sample neural window (softsign) for phoneme class {phoneme_name}"
-            sample_dir = ROOT_DIR / "plots" / "sample_windows_per_phoneme" / f"sample_windows_softsign__phoneme_{phoneme_cls}"
+            sample_dir = (
+                ROOT_DIR
+                / "plots"
+                / "sample_windows_per_phoneme"
+                / f"sample_windows_softsign__phoneme_{phoneme_cls}"
+            )
             sample_dir.mkdir(parents=True, exist_ok=True)
             out_file = sample_dir / f"sample_window_softsign__phoneme_{phoneme_cls}__sample_{i}.png"
             plot_neural_window(s, out_file, title)
-
 
     print(f"Plotting the sample windows ...")
     for phoneme_cls in phoneme_classes:
@@ -294,7 +297,9 @@ def main(args: dict) -> None:
             s = transform(s)
             s = s.squeeze()
 
-            phoneme_name = f"{phoneme_cls}" if phoneme_cls == 0 else f'"{PHONE_DEF_SIL[phoneme_cls-1]}" ({phoneme_cls})'
+            phoneme_name = (
+                f"{phoneme_cls}" if phoneme_cls == 0 else f'"{PHONE_DEF_SIL[phoneme_cls-1]}" ({phoneme_cls})'
+            )
             title = f"Sample neural window for phoneme class {phoneme_name}"
             sample_dir = ROOT_DIR / "plots" / f"samples_windows_phoneme_{phoneme_cls}"
             sample_dir.mkdir(parents=True, exist_ok=True)
@@ -393,12 +398,12 @@ if __name__ == "__main__":
     args = {}
     args["seed"] = 0
     args["device"] = "cuda"
-    args["train_set_path"] = (
-        "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
-    )
-    args["test_set_path"] = (
-        "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
-    )
+    args[
+        "train_set_path"
+    ] = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
+    args[
+        "test_set_path"
+    ] = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
     # args["output_dir"] = "/data/engs-pnpl/lina4471/synthetic_data_willett2023/simple_rnn"
     args["batch_size"] = 8
     args["n_input_features"] = 41

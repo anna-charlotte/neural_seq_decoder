@@ -176,7 +176,6 @@ def test_save_and_load_model():
 
 
 def test_create_synthetic_phoneme_dataset():
-
     latent_dim = 100
     phoneme_cls = [0, 1, 2, 3, 4]
     n_channels = 128

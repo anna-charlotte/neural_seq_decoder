@@ -48,8 +48,7 @@ class GaussianSmoothing(nn.Module):
         if isinstance(sigma, numbers.Number):
             sigma = [sigma] * dim
 
-        # The gaussian kernel is the product of the
-        # gaussian function of each dimension.
+        # The gaussian kernel is the product of the gaussian function of each dimension.
         kernel = 1
         meshgrids = torch.meshgrid([torch.arange(size, dtype=torch.float32) for size in kernel_size])
         for size, std, mgrid in zip(kernel_size, sigma, meshgrids):

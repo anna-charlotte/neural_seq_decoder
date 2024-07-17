@@ -7,14 +7,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 from edit_distance import SequenceMatcher
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from neural_decoder.dataset import SpeechDataset, _padding
-from neural_decoder.neural_decoder_trainer import (
-    get_data_loader,
-    get_dataset_loaders,
-    loadModel,
-)
+from neural_decoder.dataset import SpeechDataset
+from neural_decoder.neural_decoder_trainer import get_dataset_loaders, loadModel
 from neural_decoder.phoneme_utils import assign_correctness_values
 
 
@@ -52,7 +49,7 @@ def get_model_outputs(loaded_data: list[Dict], model, device: str) -> dict:
 
     for dayIdx in tqdm(days):
         ds = SpeechDataset([loaded_data[dayIdx]])
-        dl = torch.utils.data.DataLoader(ds, batch_size=1, shuffle=False, num_workers=0)
+        dl = DataLoader(ds, batch_size=1, shuffle=False, num_workers=0)
         for j, (X, y, X_len, y_len, day) in enumerate(dl):
             X, y, X_len, y_len, day = (
                 X.to(device),
@@ -96,7 +93,7 @@ def save_model_output(loaded_data: dict, model: nn.Module, device: str, out_file
     data = [
         {
             "sentenceDat": [],
-            "phonemes": [],  # ground truth
+            "phonemes": [],  # ground truth (predicted by RNN)
             "correctness_values": [],
             "phoneLens": [],
             "logits": [],  # predictions
@@ -111,7 +108,6 @@ def save_model_output(loaded_data: dict, model: nn.Module, device: str, out_file
         ds = SpeechDataset([loaded_data[dayIdx]])
         dl = torch.utils.data.DataLoader(ds, batch_size=1, shuffle=False, num_workers=0)
         for j, (X, y, X_len, y_len, day) in enumerate(dl):
-
             X, y, X_len, y_len, day = (
                 X.to(device),
                 y.to(device),
@@ -181,7 +177,6 @@ def input_info(input: dict) -> None:
 
 
 def evaluate(ngram_decoder, model_test_outputs, model_holdOut_outputs, outputFilePath):
-
     print("\nDecoding Test...\n", flush=True)
     decoder_out_test = lmDecoderUtils.cer_with_lm_decoder(
         ngram_decoder,

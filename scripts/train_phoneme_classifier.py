@@ -27,6 +27,7 @@ from neural_decoder.phoneme_utils import PHONE_DEF, ROOT_DIR
 from neural_decoder.transforms import SoftsignTransform
 from text2brain.models import PhonemeImageGAN
 from text2brain.models.phoneme_image_gan import _get_indices_in_classes
+from text2brain.visualization import plot_phoneme_distribution
 from utils import set_seeds
 
 
@@ -237,39 +238,6 @@ def get_label_distribution(dataset):
     return label_counts
 
 
-def plot_phoneme_distribution(
-    class_counts,
-    out_file: Path,
-    title: str = "Phoneme Class Counts",
-    x_label: str = "Phoneme",
-    y_label: str = "Count",
-) -> None:
-    plt.figure(figsize=(12, 6))
-    ax = sns.barplot(x=PHONE_DEF, y=class_counts, palette="muted")
-
-    max_height = max(class_counts)
-    ax.set_ylim(0, 1.15 * max_height)
-
-    for p in ax.patches:
-        height = p.get_height()
-        ax.annotate(f'{height:.0f}', 
-                    (p.get_x() + p.get_width() / 2., height), 
-                    ha = 'center', va = 'center', 
-                    xytext = (0, 18),  # Move the text 12 points above the bar
-                    textcoords = 'offset points',
-                    rotation=90)  # Rotate the text by 90 degrees
-
-    plt.xticks(rotation=90)
-    plt.xlabel(x_label)
-    plt.ylabel(y_label)
-    plt.title(title)
-    plt.grid(True)
-    plt.tight_layout()
-
-    print(f"Save distribution plot to: {out_file}")
-    plt.savefig(out_file)
-
-
 def main(args: dict) -> None:
     for k, v in args.items():
         print(f"{k}: {v}")
@@ -278,7 +246,6 @@ def main(args: dict) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     set_seeds(args["seed"])
-    # torch.use_deterministic_algorithms(True)
 
     batch_size = args["batch_size"]
     device = args["device"]
@@ -313,7 +280,6 @@ def main(args: dict) -> None:
 
     phoneme_ds_filter = {"correctness_value": ["C"], "phoneme_cls": list(range(1, 40))}
     args["phoneme_ds_filter"] = phoneme_ds_filter
-    phoneme_classes = phoneme_ds_filter["phoneme_cls"]
 
     transform = None
     if args["transform"] == "softsign":
@@ -353,9 +319,6 @@ def main(args: dict) -> None:
         ROOT_DIR / "plots" / "phoneme_distribution_test_set_correctly_classified_by_RNN.png",
         "Phoneme Distribution in Test Set",
     )
-
-    # print(f"\nlabels_train = {sorted(labels_train)}")
-    # print(f"\nlabels_test = {sorted(labels_test)}")
 
     # if (
     #     "generative_model_args_path" in args.keys()
@@ -423,39 +386,37 @@ if __name__ == "__main__":
     args = {}
     args["seed"] = 0
     args["device"] = "cuda" if torch.cuda.is_available() else "cpu"
-    args["train_set_path"] = (
-        "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
-    )
-    args["test_set_path"] = (
-        "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
-    )
+    data_dir = Path("/data/engs-pnpl/lina4471/willett2023/competitionData")
+    args["train_set_path"] = data_dir / "rnn_train_set_with_logits.pkl"
+    args["test_set_path"] = data_dir / "rnn_test_set_with_logits.pkl"
     args["n_epochs"] = 10
 
     for lr in [1e-4]:
         for batch_size in [64, 128]:
             for cls_weights in ["sqrt", None]:
                 for synthetic_data in [True]:
-
                     now = datetime.now()
                     timestamp = now.strftime("%Y%m%d_%H%M%S")
 
-                    args["output_dir"] = (
-                        f"/data/engs-pnpl/lina4471/willett2023/phoneme_classifier/PhonemeClassifier_bs_{batch_size}__lr_{lr}__cls_ws_{cls_weights}__synthetic_{synthetic_data}_{timestamp}"
-                    )
+                    args[
+                        "output_dir"
+                    ] = f"/data/engs-pnpl/lina4471/willett2023/phoneme_classifier/PhonemeClassifier_bs_{batch_size}__lr_{lr}__cls_ws_{cls_weights}__synthetic_{synthetic_data}_{timestamp}"
                     if synthetic_data:
-                        args["generative_model_args_path"] = (
-                            "/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_20240708_103107/args"
-                        )
-                        args["generative_model_weights_path"] = (
-                            "/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_20240708_103107/modelWeights_epoch_6"
-                        )
+                        args[
+                            "generative_model_args_path"
+                        ] = "/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_20240708_103107/args"
+                        args[
+                            "generative_model_weights_path"
+                        ] = "/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_20240708_103107/modelWeights_epoch_6"
                         args["generative_model_n_samples"] = 50_000
                         print(args["generative_model_weights_path"])
+
                     args["lr"] = lr
                     args["batch_size"] = batch_size
                     args["class_weights"] = cls_weights
                     args["transform"] = "softsign"
                     args["patience"] = 20
+                    args["gaussian_smoothing"] = 2.0
 
                     # args["n_input_features"] = 41
                     # args["n_output_features"] = 256

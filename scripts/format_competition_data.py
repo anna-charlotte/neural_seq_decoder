@@ -15,14 +15,11 @@ g2p = G2p()
 
 
 def load_features_and_normalize(session_path: str) -> dict:
-
     dat = scipy.io.loadmat(session_path)
 
     input_features = []
     transcriptions = []
     frame_lens = []
-    block_means = []
-    block_stds = []
     n_trials = dat["sentenceText"].shape[0]
 
     # collect area 6v tx1 and spikePow features
@@ -128,7 +125,6 @@ def get_dataset(file_name):
 
 
 if __name__ == "__main__":
-
     root_directory = os.environ["DATA"]
     os.sys.path.append(root_directory)
     print(f"root_directory = {root_directory}")

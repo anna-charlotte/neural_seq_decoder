@@ -10,7 +10,6 @@ from neural_decoder.phoneme_utils import PHONE_DEF_SIL
 
 
 def _padding(batch: tuple) -> tuple:
-
     X, y, X_lens, y_lens, days = zip(*batch)
 
     X_padded = pad_sequence(X, batch_first=True, padding_value=0)
@@ -98,8 +97,10 @@ class PhonemeDataset(BaseDataset):
         kernel_len: int = 32,
         stride: int = 4,
         phoneme_cls: int = None,
-        filter_by: Dict[str, list] = {},
+        filter_by=None,
     ) -> None:
+        if filter_by is None:
+            filter_by = {}
         self.kernel_len = kernel_len
         self.stride = stride
         self.phoneme_cls = phoneme_cls
@@ -186,7 +187,7 @@ class SyntheticPhonemeDataset(BaseDataset):
         self.neural_windows = neural_windows
         self.phonemes = phoneme_labels
 
-        super().__init__({}, transform)
+        super().__init__([{}], transform)
 
     def prepare_data(self) -> None:
         self.n_trials = len(self.phonemes)

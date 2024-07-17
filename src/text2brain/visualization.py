@@ -1,149 +1,32 @@
 from pathlib import Path
+from typing import List, Tuple
 
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
+import seaborn as sns
 import torch
 
 from neural_decoder.neural_decoder_trainer import get_dataset_loaders
-from neural_decoder.phoneme_utils import ROOT_DIR
+from neural_decoder.phoneme_utils import PHONE_DEF, ROOT_DIR
 
-channel_order_1 = [
-    62,
-    51,
-    43,
-    35,
-    94,
-    87,
-    79,
-    78,
-    60,
-    53,
-    41,
-    33,
-    95,
-    86,
-    77,
-    76,
-    63,
-    54,
-    47,
-    44,
-    93,
-    84,
-    75,
-    74,
-    58,
-    55,
-    48,
-    40,
-    92,
-    85,
-    73,
-    72,
-    59,
-    45,
-    46,
-    38,
-    91,
-    82,
-    71,
-    70,
-    61,
-    49,
-    42,
-    36,
-    90,
-    83,
-    69,
-    68,
-    56,
-    52,
-    39,
-    34,
-    89,
-    81,
-    67,
-    66,
-    57,
-    50,
-    37,
-    32,
-    88,
-    80,
-    65,
-    64,
-]
-channel_order_2 = [
-    125,
-    126,
-    112,
-    103,
-    31,
-    28,
-    11,
-    8,
-    123,
-    124,
-    110,
-    102,
-    29,
-    26,
-    9,
-    5,
-    121,
-    122,
-    109,
-    101,
-    27,
-    19,
-    18,
-    4,
-    119,
-    120,
-    108,
-    100,
-    25,
-    15,
-    12,
-    6,
-    117,
-    118,
-    107,
-    99,
-    23,
-    13,
-    10,
-    3,
-    115,
-    116,
-    106,
-    97,
-    21,
-    20,
-    7,
-    2,
-    113,
-    114,
-    105,
-    98,
-    17,
-    24,
-    14,
-    0,
-    127,
-    111,
-    104,
-    96,
-    30,
-    22,
-    16,
-    1,
-]
+
+def plot_neural_window(
+    window: torch.Tensor, out_file, title: str, figsize: Tuple[int, int] = (10, 6)
+) -> None:
+    plt.figure(figsize=figsize)
+    plt.imshow(window, cmap="plasma", aspect="auto")  # , vmin=overall_min_value, vmax=overall_max_value)
+    plt.colorbar()
+
+    plt.title(title)
+    plt.xlabel("Timestep")
+    plt.ylabel("Channel")
+
+    plt.savefig(out_file)
+    plt.close()
 
 
 def plot_brain_signal_animation(signal: torch.Tensor, save_path: Path, title: str = "Frame") -> None:
-
     print(signal.size())
     # assert len(signal.size()) == 2
     # assert signal.size(1) == 256
@@ -154,10 +37,6 @@ def plot_brain_signal_animation(signal: torch.Tensor, save_path: Path, title: st
     for i in range(reshaped_signal.size(1)):
         imgs = []
         for j, img in enumerate(reshaped_signal[:, i, :, :]):
-            # if j == 0 or j == 2:
-            #     imgs.append(img[channel_order_1])
-            # if j == 1 or j == 3:
-            #     imgs.append(img[channel_order_2])
             imgs.append(img.detach().cpu())
 
         img_list.append(imgs)
@@ -191,6 +70,104 @@ def plot_brain_signal_animation(signal: torch.Tensor, save_path: Path, title: st
 
     ani = animation.FuncAnimation(fig, animate, frames=len(img_list), interval=200, repeat=False)
     ani.save(save_path, writer="imagemagick", fps=5)
+
+
+def plot_accuracies(
+    accs: np.ndarray,
+    out_file: Path,
+    title: str = "Phoneme Classification - Test Accuracies",
+    x_label: str = "Phoneme",
+    y_label: str = "Test Accuracy",
+) -> None:
+    plt.figure(figsize=(12, 6))
+    sns.barplot(x=PHONE_DEF, y=accs, palette="muted")
+
+    plt.xticks(rotation=90)
+    plt.xlabel(x_label)
+    plt.ylabel(y_label)
+    plt.title(title)
+    plt.grid(True)
+    plt.tight_layout()
+
+    plt.savefig(out_file)
+
+
+def plot_metric_of_multiple_models(
+    model_names: List[str],
+    values: list,
+    classes: list,
+    title: str,
+    out_file: Path,
+    xlabel: str = "classes",
+    ylabel: str = "accuracy",
+) -> None:
+    # Colors for the bars for each model
+    colors = ["blue", "orange", "green", "red", "purple"]
+
+    # Number of classes and models
+    n_classes = len(classes)
+    n_models = len(model_names)
+
+    # Set the positions of the bars on the x-axis
+    bar_width = 0.8 / n_models  # Adjust bar width based on the number of models
+    index = np.arange(n_classes)
+
+    # Plotting the bars
+    fig, ax = plt.subplots(figsize=(12, 6))
+    for i, (model, vals) in enumerate(zip(model_names, values)):
+        ax.bar(index + i * bar_width, vals, bar_width, label=model, color=colors[i % len(colors)])
+
+    # Adding labels, title, and custom x-axis tick labels
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.set_xticks(index + bar_width * (n_models - 1) / 2)
+    ax.set_xticklabels(classes)
+    ax.legend()
+
+    # Adding a grid for better readability
+    ax.grid(axis="y", linestyle="--", alpha=0.7)
+
+    # Display the plot
+    plt.tight_layout()
+    print(f"Saving plot to: {out_file}")
+    plt.savefig(out_file)
+
+
+def plot_phoneme_distribution(
+    class_counts: List[int],
+    out_file: Path,
+    title: str = "Phoneme Class Counts",
+    x_label: str = "Phoneme",
+    y_label: str = "Count",
+) -> None:
+    plt.figure(figsize=(12, 6))
+    ax = sns.barplot(x=PHONE_DEF, y=class_counts, palette="muted")
+
+    max_height = max(class_counts)
+    ax.set_ylim(0, 1.15 * max_height)
+
+    for p in ax.patches:
+        height = p.get_height()
+        ax.annotate(
+            f"{height:.0f}",
+            (p.get_x() + p.get_width() / 2.0, height),
+            ha="center",
+            va="center",
+            xytext=(0, 18),  # Move the text 12 points above the bar
+            textcoords="offset points",
+            rotation=90,
+        )  # Rotate the text by 90 degrees
+
+    plt.xticks(rotation=90)
+    plt.xlabel(x_label)
+    plt.ylabel(y_label)
+    plt.title(title)
+    plt.grid(True)
+    plt.tight_layout()
+
+    print(f"Save distribution plot to: {out_file}")
+    plt.savefig(out_file)
 
 
 if __name__ == "__main__":

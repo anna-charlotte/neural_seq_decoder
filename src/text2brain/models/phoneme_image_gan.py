@@ -1,6 +1,6 @@
 import pickle
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 import numpy as np
 import torch
@@ -13,7 +13,10 @@ from tqdm import tqdm
 from neural_decoder.dataset import SyntheticPhonemeDataset
 
 
-def phonemes_to_signal(model, phonemes: list) -> torch.Tensor:
+def phonemes_to_signal(model, phonemes: list, signal_shape: Tuple[int, ...] = (32, 16, 16)) -> torch.Tensor:
+    """
+    Given a list of phonemes, generate a signal for each and concatenate them
+    """
     assert model.conditional == True
 
     unique_phonemes = list(set(phonemes))
@@ -21,14 +24,8 @@ def phonemes_to_signal(model, phonemes: list) -> torch.Tensor:
 
     signal = []
     for p in phonemes:
-        s = model.generate(
-            label=torch.tensor(
-                [
-                    p,
-                ]
-            )
-        )
-        s = s.view(1, 32, 16, 16)
+        s = model.generate(label=torch.tensor([p]))
+        s = s.view(1, *signal_shape)
         signal.append(s)
 
     return torch.cat(signal, dim=1)
@@ -229,7 +226,6 @@ class Generator(nn.Module):
         )
 
     def forward(self, noise, labels):
-
         if self.conditional:
             labels = self.label_emb(labels)
             gen_input = torch.cat((noise, labels), -1)
@@ -307,7 +303,6 @@ class Discriminator(nn.Module):
         )
 
     def forward(self, img, labels):
-
         if self.conditional:
             labels = self.label_emb(labels)
             labels = labels.view(labels.size(0), labels.size(1), 1, 1)

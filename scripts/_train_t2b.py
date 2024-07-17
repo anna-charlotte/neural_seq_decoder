@@ -16,7 +16,6 @@ from text2brain.models.utils import load_text2brain_model
 
 
 def main(args: dict) -> None:
-
     os.makedirs(args["output_dir"], exist_ok=True)
 
     torch.manual_seed(args["seed"])

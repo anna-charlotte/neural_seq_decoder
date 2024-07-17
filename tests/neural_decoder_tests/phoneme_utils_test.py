@@ -49,7 +49,6 @@ def test_2():
 
 
 def test_3():
-
     # Example usage
     pred_seq = [1, 1, 2, 3, 3, 1, 1, 0, 4, 4, 0, 5, 1]
     true_seq = [1, 2, 3, 4, 5]
