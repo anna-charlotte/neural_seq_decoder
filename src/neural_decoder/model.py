@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from .augmentations import GaussianSmoothing
+from neural_decoder.data.augmentations import GaussianSmoothing
 
 
 class GRUDecoder(nn.Module):

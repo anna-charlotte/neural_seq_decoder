@@ -1,5 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Dict
+import pickle
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -213,3 +215,60 @@ class SyntheticPhonemeDataset(BaseDataset):
 
     def __len__(self) -> int:
         return self.n_trials
+
+
+def save_averaged_windows_for_all_classes(train_file: Path, reorder_channels: bool, out_file: Path):
+    n_classes = 41
+    phoneme_classes = range(n_classes)
+    all_averaged_windows = {}
+
+    for phoneme_cls in phoneme_classes:
+        print(f"\nphoneme_cls = {phoneme_cls}")
+
+        with open(train_file, "rb") as handle:
+            train_data = pickle.load(handle)
+
+        filter_by = {}
+        if isinstance(phoneme_cls, int):
+            filter_by = {"correctness_value": "C", "phoneme_cls": [phoneme_cls]}
+
+        train_dl = get_data_loader(
+            data=train_data,
+            batch_size=1,
+            shuffle=True,
+            collate_fn=None,
+            dataset_cls=PhonemeDataset,
+            phoneme_ds_filter=filter_by,
+        )
+        train_ds = train_dl.dataset
+
+        print(f"len(train_ds) = {len(train_ds)}")
+        all_neural_windows = []
+
+        for i, batch in enumerate(train_ds):
+            X, _, logits, _ = batch
+            window = torch.transpose(X, 0, 1)
+
+            if reorder_channels:
+                window = reorder_neural_window(window)
+
+            all_neural_windows.append(window)
+
+        stacked_windows = torch.stack(all_neural_windows)
+        avg_window = torch.mean(stacked_windows, dim=0)
+        avg_window_np = avg_window.numpy()
+
+        all_averaged_windows[phoneme_cls] = {
+            "avg_window": avg_window,
+            "n_samples": len(stacked_windows),
+        }
+        assert avg_window_np.shape == (256, 32)
+
+    print(f"Storing the dictionary of phoneme classes to their averaged window to: {out_file}")
+    torch.save(all_averaged_windows, out_file)
+
+
+def load_averaged_windows_for_all_classes(file: Path) -> dict:
+    print(f"Loading the dictionary of phoneme classes to their averaged window from: {file}")
+    phoneme2window = torch.load(file)
+    return phoneme2window

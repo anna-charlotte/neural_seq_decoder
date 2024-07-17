@@ -60,14 +60,13 @@ def train_model(
     for i_epoch in range(n_epochs):
         for j_batch, data in enumerate(train_dl):
             model.train()
+            optimizer.zero_grad()
 
             X, y, logits, dayIdx = data
             y = _get_indices_in_classes(y, torch.tensor(model_classes, device=y.device)).to(y.device)
-
             X, y, logits, dayIdx = (X.to(device), y.to(device), logits.to(device), dayIdx.to(device))
-            optimizer.zero_grad()
-            # X = X.view(train_dl.batch_size, 32, 16, 16)
-            X = X.view(X.size(0), 128, 8, 8)
+            # X.size = (batch_size, 1, 32, 256), model will take of reshaping
+
             pred = model(X)
 
             loss = criterion(pred, y.long())
@@ -101,8 +100,6 @@ def train_model(
                             logits.to(device),
                             dayIdx.to(device),
                         )
-                        # X = X.view(1, 32, 16, 16)
-                        X = X.view(1, 128, 8, 8)
 
                         pred = model(X)
 
@@ -164,6 +161,7 @@ def train_model(
                 )
                 time_steps.append({"epoch": i_epoch, "batch": j_batch})
                 stats = {
+                    "time_steps": time_steps,
                     "best_test_acc": best_test_acc,
                     "train_losses": all_train_losses,
                     "test_losses": all_test_losses,
@@ -172,7 +170,6 @@ def train_model(
                     "test_f1_micro": all_test_f1_micro,
                     "test_f1_macro": all_test_f1_macro,
                     "test_balanced_acc": all_test_balanced_acc,
-                    "time_steps": time_steps,
                 }
                 for n, acc in enumerate(class_accuracies):
                     stats[f"test_acc_for_phoneme_{n}_{PHONE_DEF[n]}"] = acc
@@ -239,6 +236,7 @@ def get_label_distribution(dataset):
 
 
 def main(args: dict) -> None:
+    print("Training with the following arguments:")
     for k, v in args.items():
         print(f"{k}: {v}")
 
@@ -280,6 +278,7 @@ def main(args: dict) -> None:
 
     phoneme_ds_filter = {"correctness_value": ["C"], "phoneme_cls": list(range(1, 40))}
     args["phoneme_ds_filter"] = phoneme_ds_filter
+    phoneme_classes = phoneme_ds_filter["phoneme_cls"]
 
     transform = None
     if args["transform"] == "softsign":
@@ -320,65 +319,68 @@ def main(args: dict) -> None:
         "Phoneme Distribution in Test Set",
     )
 
-    # if (
-    #     "generative_model_args_path" in args.keys()
-    #     and "generative_model_weights_path" in args.keys()
-    #     and "generative_model_n_samples" in args.keys()
-    # ):
-    #     print("Use real and synthetic data ...")
+    if (
+        "generative_model_args_path" in args.keys()
+        and "generative_model_weights_path" in args.keys()
+        and "generative_model_n_samples" in args.keys()
+    ):
+        print("Use real and synthetic data ...")
 
-    #     gen_model = PhonemeImageGAN.load_model(
-    #         args_path=args["generative_model_args_path"],
-    #         weights_path=args["generative_model_weights_path"],
-    #     )
+        gen_model = PhonemeImageGAN.load_model(
+            args_path=args["generative_model_args_path"],
+            weights_path=args["generative_model_weights_path"],
+        )
 
-    #     # neural_window_shape = next(iter(train_dl_real))[0].size()
-    #     n_synthetic_samples = args["generative_model_n_samples"]
-    #     synthetic_ds = gen_model.create_synthetic_phoneme_dataset(
-    #         n_samples=n_synthetic_samples,
-    #         neural_window_shape=(32, 256),
-    #     )
-    #     synthetic_dl = DataLoader(
-    #         synthetic_ds,
-    #         batch_size=batch_size,
-    #         shuffle=True,
-    #         num_workers=0,
-    #         pin_memory=True,
-    #         collate_fn=None,
-    #     )
+        # neural_window_shape = next(iter(train_dl_real))[0].size()
+        n_synthetic_samples = args["generative_model_n_samples"]
+        synthetic_ds = gen_model.create_synthetic_phoneme_dataset(
+            n_samples=n_synthetic_samples,
+            neural_window_shape=(32, 256),
+        )
+        synthetic_dl = DataLoader(
+            synthetic_ds,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=0,
+            pin_memory=True,
+            collate_fn=None,
+        )
 
-    #     train_dl = MergedDataLoader(train_dl_real, synthetic_dl)
-    # else:
-    #     print("Use only real data ...")
-    #     train_dl = train_dl_real
+        train_dl = MergedDataLoader(loader1=synthetic_dl, loader2=train_dl_real, prop1=args["generative_model_proportion"])
+    else:
+        print("Use only real data ...")
+        train_dl = train_dl_real
 
-    # n_classes = len(phoneme_classes)
-    # args["n_classes"] = n_classes
-    # model = PhonemeClassifier(n_classes=n_classes).to(device)
+    n_classes = len(phoneme_classes)
+    args["n_classes"] = n_classes
+    model = PhonemeClassifier(
+        n_classes=n_classes,
+        input_shape=args["input_shape"]
+    ).to(device)
 
-    # n_epochs = args["n_epochs"]
-    # lr = args["lr"]
-    # optimizer = optim.Adam(model.parameters(), lr=lr)
-    # criterion = nn.CrossEntropyLoss()
+    n_epochs = args["n_epochs"]
+    lr = args["lr"]
+    optimizer = optim.Adam(model.parameters(), lr=lr)
+    criterion = nn.CrossEntropyLoss()
 
-    # with open(out_dir / "args", "wb") as file:
-    #     pickle.dump(args, file)
-    # with open(out_dir / "args.json", "w") as file:
-    #     json.dump(args, file, indent=4)
+    with open(out_dir / "args", "wb") as file:
+        pickle.dump(args, file)
+    with open(out_dir / "args.json", "w") as file:
+        json.dump(args, file, indent=4)
 
-    # output = train_model(
-    #     model=model,
-    #     train_dl=train_dl,
-    #     test_dl=test_dl,
-    #     n_classes=n_classes,
-    #     optimizer=optimizer,
-    #     criterion=criterion,
-    #     device=device,
-    #     out_dir=out_dir,
-    #     n_epochs=n_epochs,
-    #     patience=args["patience"],
-    #     model_classes=phoneme_classes,
-    # )
+    output = train_model(
+        model=model,
+        train_dl=train_dl,
+        test_dl=test_dl,
+        n_classes=n_classes,
+        optimizer=optimizer,
+        criterion=criterion,
+        device=device,
+        out_dir=out_dir,
+        n_epochs=n_epochs,
+        patience=args["patience"],
+        model_classes=phoneme_classes,
+    )
 
 
 if __name__ == "__main__":
@@ -387,8 +389,8 @@ if __name__ == "__main__":
     args["seed"] = 0
     args["device"] = "cuda" if torch.cuda.is_available() else "cpu"
     data_dir = Path("/data/engs-pnpl/lina4471/willett2023/competitionData")
-    args["train_set_path"] = data_dir / "rnn_train_set_with_logits.pkl"
-    args["test_set_path"] = data_dir / "rnn_test_set_with_logits.pkl"
+    args["train_set_path"] = str(data_dir / "rnn_train_set_with_logits.pkl")
+    args["test_set_path"] = str(data_dir / "rnn_test_set_with_logits.pkl")
     args["n_epochs"] = 10
 
     for lr in [1e-4]:
@@ -405,12 +407,12 @@ if __name__ == "__main__":
                         args[
                             "generative_model_args_path"
                         ] = "/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_20240708_103107/args"
-                        args[
-                            "generative_model_weights_path"
-                        ] = "/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_20240708_103107/modelWeights_epoch_6"
+                        args["generative_model_weights_path"] = "/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_20240708_103107/modelWeights_epoch_6"
                         args["generative_model_n_samples"] = 50_000
+                        args["generative_model_proportion"] = 1.0
                         print(args["generative_model_weights_path"])
 
+                    args["input_shape"] = (128, 8, 8)
                     args["lr"] = lr
                     args["batch_size"] = batch_size
                     args["class_weights"] = cls_weights

@@ -1,6 +1,7 @@
 import pickle
 import random
 from pathlib import Path
+from typing import Tuple
 
 import numpy as np
 import torch
@@ -35,8 +36,9 @@ import torch.optim as optim
 
 
 class PhonemeClassifier(nn.Module):
-    def __init__(self, n_classes: int):
+    def __init__(self, n_classes: int, input_shape: Tuple[int, ...]):
         super(PhonemeClassifier, self).__init__()
+        self.input_shape = input_shape
         self.model = nn.Sequential(
             nn.Conv2d(in_channels=128, out_channels=64, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(64),
@@ -58,7 +60,8 @@ class PhonemeClassifier(nn.Module):
         )
 
     def forward(self, x):
-        return self.model(x)
+        x_reshaped = x.view(-1, *self.input_shape)
+        return self.model(x_reshaped)
 
 
 class PhonemeClassifierRNN(nn.Module):
