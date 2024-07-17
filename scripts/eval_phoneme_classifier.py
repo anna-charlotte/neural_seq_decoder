@@ -21,7 +21,7 @@ from sklearn.metrics import (
 )
 from torch.utils.data import DataLoader
 
-from neural_decoder.data.dataset import PhonemeDataset
+from data.dataset import PhonemeDataset
 from neural_decoder.model_phoneme_classifier import PhonemeClassifier
 from neural_decoder.neural_decoder_trainer import get_data_loader
 from neural_decoder.phoneme_utils import PHONE_DEF, ROOT_DIR

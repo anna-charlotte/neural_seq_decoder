@@ -1,7 +1,7 @@
 import pickle
 from pathlib import Path
 
-from neural_decoder.data.dataset import _padding
+from data.dataset import _padding
 from neural_decoder.neural_decoder_trainer import get_data_loader, get_dataset_loaders
 from text2brain.models.utils import load_text2brain_model
 from text2brain.synthetic_data import save_synthetic_data

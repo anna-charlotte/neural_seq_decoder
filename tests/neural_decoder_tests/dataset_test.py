@@ -2,7 +2,7 @@ import pickle
 
 import numpy as np
 
-from neural_decoder.data.dataset import PhonemeDataset, SpeechDataset, _padding
+from data.dataset import PhonemeDataset, SpeechDataset, _padding
 from neural_decoder.neural_decoder_trainer import get_data_loader
 
 
