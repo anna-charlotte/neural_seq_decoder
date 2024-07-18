@@ -3,6 +3,7 @@ import os
 import pickle
 import time
 from typing import Any, Tuple, Type
+from pathlib import Path 
 
 import hydra
 import numpy as np
@@ -94,14 +95,15 @@ def get_dataset_loaders(
 
 
 def trainModel(args):
-    os.makedirs(args["outputDir"], exist_ok=True)
+    output_dir = Path(args["outputDir"])
+    os.makedirs(output_dir, exist_ok=True)
     torch.manual_seed(args["seed"])
     np.random.seed(args["seed"])
     device = "cuda"
 
-    with open(args["outputDir"] + "/args", "wb") as file:
+    with open(output_dir / "args", "wb") as file:
         pickle.dump(args, file)
-    with open(args["outputDir"] / "args.json", "w") as file:
+    with open(output_dir / "args.json", "w") as file:
         json.dump(args, file, indent=4)
 
     train_loader, test_loader, loaded_data = get_dataset_loaders(
@@ -180,13 +182,15 @@ def trainModel(args):
 
         # Compute prediction error
         pred = model.forward(X, dayIdx)
+        y_pred = torch.permute(pred.log_softmax(2), [1, 0, 2])
 
         loss = loss_ctc(
-            torch.permute(pred.log_softmax(2), [1, 0, 2]),
+            y_pred,
             y,
             ((X_len - model.kernelLen) / model.strideLen).to(torch.int32),
             y_len,
         )
+
         loss = torch.sum(loss)
 
         # Backpropagation
@@ -249,7 +253,7 @@ def trainModel(args):
                 start_time = time.time()
 
             if len(test_cer) > 0 and cer < np.min(test_cer):
-                torch.save(model.state_dict(), args["outputDir"] + "/modelWeights")
+                torch.save(model.state_dict(), output_dir / "modelWeights")
             test_loss.append(avg_day_loss)
             test_cer.append(cer)
 
@@ -257,9 +261,9 @@ def trainModel(args):
             t_stats["test_loss"] = np.array(test_loss)
             t_stats["test_cer"] = np.array(test_cer)
 
-            with open(args["outputDir"] + "/trainingStats", "wb") as file:
+            with open(output_dir / "trainingStats", "wb") as file:
                 pickle.dump(t_stats, file)
-            with open(args["outputDir"] / "trainingStats.json", "w") as file:
+            with open(output_dir / "trainingStats.json", "w") as file:
                 json.dump(args, file, indent=4)
 
 

@@ -27,7 +27,7 @@ def cer(logits: torch.Tensor, X_len: torch.Tensor, y: torch.Tensor, y_len: torch
         )  # [num_seq,]
         decoded_seq = torch.unique_consecutive(decoded_seq, dim=-1)
         decoded_seq = decoded_seq.cpu().detach().numpy()
-        decoded_seq = np.array([i for i in decoded_seq if i != 0])
+        decoded_seq = np.array([i for i in decoded_seq if i != 0])  # remove all the 0's
 
         true_seq = np.array(y[iterIdx][0 : y_len[iterIdx]].cpu().detach())
 
@@ -60,6 +60,7 @@ def get_model_outputs(loaded_data: list[Dict], model, device: str) -> dict:
             )
 
             pred = model.forward(X, day)
+
             adjusted_lens = ((X_len - model.kernelLen) / model.strideLen).to(torch.int32) + 1
 
             for iterIdx in range(pred.shape[0]):
@@ -88,7 +89,7 @@ def get_model_outputs(loaded_data: list[Dict], model, device: str) -> dict:
     return model_outputs
 
 
-def save_model_output(loaded_data: dict, model: nn.Module, device: str, out_file: str) -> None:
+def save_model_output(model: nn.Module, loaded_data: dict, device: str, out_file: str) -> None:
     days = range(len(loaded_data))
     data = [
         {
@@ -163,8 +164,7 @@ def save_model_output(loaded_data: dict, model: nn.Module, device: str, out_file
     data[dayIdx]["logits"] = np.concatenate([logits[:, :, 1:], logits[:, :, :1]], axis=-1)
 
     with open(out_file, "wb") as handle:
-        print(f"len(data) = {len(data)}")
-        print(f"\nStore data to: {out_file}")
+        print(f"Store data to: {out_file}\n")
         pickle.dump(data, handle)
 
 
@@ -231,10 +231,10 @@ if __name__ == "__main__":
 
     if save_output:
         file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
-        save_model_output(loaded_data=loaded_data["train"], model=model, device=device, out_file=file)
+        save_model_output(model=model, loaded_data=loaded_data["train"], device=device, out_file=file)
 
         file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
-        save_model_output(loaded_data=loaded_data["test"], model=model, device=device, out_file=file)
+        save_model_output(model=model, loaded_data=loaded_data["test"], device=device, out_file=file)
 
     if eval_model:
         model_test_outputs = get_model_outputs(
