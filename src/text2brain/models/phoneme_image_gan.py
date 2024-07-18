@@ -79,11 +79,7 @@ class PhonemeImageGAN(nn.Module):
         y = y.to(self.device)
         y = _get_indices_in_classes(y, torch.tensor(self.phoneme_cls, device=y.device)).to(y.device)
         X_real = X_real.to(self.device)
-        # X_real = X_real.view(X_real.size(0), X_real.size(1), 16, 16)
         X_real = X_real.view(-1, 128, 8, 8)
-        # if isinstance(self.phoneme_cls, list) and len(self.phoneme_cls) < 41:
-        #     # y = y - 1
-        #     y = _get_indices_in_classes(y, torch.tensor(self.phoneme_cls, device=y.device)).to(y.device)
 
         for _ in range(self.n_critic):
             self._d.zero_grad()

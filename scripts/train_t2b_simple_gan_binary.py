@@ -235,7 +235,7 @@ class Generator64(nn.Module):
             nn.ReLU(True),
             # state size. ``(ngf) x 32 x 32``
             nn.ConvTranspose2d(ngf, nc, 4, 2, 1, bias=False),
-            nn.Tanh()
+            nn.Tanh(),
             # state size. ``(nc) x 64 x 64``
         )
 
@@ -525,15 +525,15 @@ if __name__ == "__main__":
         # args["n_critic"] = 1
         args["transform"] = "softsign"
 
-        args[
-            "train_set_path"
-        ] = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
-        args[
-            "test_set_path"
-        ] = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
-        args[
-            "output_dir"
-        ] = f"/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_{timestamp}__nclasses_{args['n_classes']}__with_64x64_DCGAN"
+        args["train_set_path"] = (
+            "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
+        )
+        args["test_set_path"] = (
+            "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
+        )
+        args["output_dir"] = (
+            f"/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_{timestamp}__nclasses_{args['n_classes']}__with_64x64_DCGAN"
+        )
         args["timestamp"] = timestamp
 
         main(args)

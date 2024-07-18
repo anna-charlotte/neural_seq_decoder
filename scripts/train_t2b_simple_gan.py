@@ -187,14 +187,14 @@ if __name__ == "__main__":
     args["n_critic"] = 1
     args["transform"] = "softsign"
 
-    args[
-        "train_set_path"
-    ] = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
-    args[
-        "test_set_path"
-    ] = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
-    args[
-        "output_dir"
-    ] = f"/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_{timestamp}__nclasses_{args['n_classes']}"
+    args["train_set_path"] = (
+        "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
+    )
+    args["test_set_path"] = (
+        "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
+    )
+    args["output_dir"] = (
+        f"/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_{timestamp}__nclasses_{args['n_classes']}"
+    )
 
     main(args)

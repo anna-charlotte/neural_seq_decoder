@@ -3,6 +3,7 @@ import pickle
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
+from typing import List
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,15 +12,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from sklearn.metrics import (
-    balanced_accuracy_score,
-    confusion_matrix,
-    f1_score,
-    roc_auc_score,
-)
 from torch.utils.data import DataLoader
 
-from data.dataloader import MergedDataLoader
 from data.dataset import PhonemeDataset
 from neural_decoder.model_phoneme_classifier import (
     PhonemeClassifier,
@@ -30,7 +24,6 @@ from neural_decoder.phoneme_utils import PHONE_DEF, ROOT_DIR
 from neural_decoder.transforms import SoftsignTransform
 from text2brain.models import PhonemeImageGAN
 from text2brain.models.phoneme_image_gan import _get_indices_in_classes
-from text2brain.visualization import plot_phoneme_distribution
 from utils import set_seeds
 
 
@@ -57,34 +50,6 @@ def main(args: dict) -> None:
     batch_size = args["batch_size"]
     device = args["device"]
 
-    train_file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
-    with open(train_file, "rb") as handle:
-        data_train = pickle.load(handle)
-
-    # fmt: off
-    class_counts = [
-        4841, 7058, 27635, 3298, 2566, 7524, 4674, 2062, 11389, 9501,
-        6125, 6573, 4027, 4259, 3315, 5505, 15591, 10434, 2194, 9755,
-        13949, 9138, 18297, 3411, 3658, 1661, 6034, 11435, 11605, 2815,
-        23188, 2083, 1688, 8414, 6566, 6633, 3707, 7403, 7807
-    ]  
-    # fmt: on
-    plot_phoneme_distribution(
-        class_counts,
-        ROOT_DIR / "plots" / "phoneme_distribution_training_set_correctly_classified_by_RNN.png",
-        "Phoneme Distribution in Training Set",
-    )
-
-    # Calculate weights for each class
-    if args["class_weights"] == "sqrt":
-        class_weights = torch.tensor(1.0 / np.sqrt(np.array(class_counts))).float()
-        # class_weights = torch.tensor(class_weights, dtype=torch.float32)
-    elif args["class_weights"] == "inv":
-        class_weights = torch.tensor(1.0 / np.array(class_counts)).float()
-        # class_weights = torch.tensor(class_weights, dtype=torch.float32)
-    else:
-        class_weights = None
-
     phoneme_ds_filter = {"correctness_value": args["correctness_value"], "phoneme_cls": args["phoneme_cls"]}
     args["phoneme_ds_filter"] = phoneme_ds_filter
     phoneme_classes = args["phoneme_cls"]
@@ -94,24 +59,46 @@ def main(args: dict) -> None:
         transform = SoftsignTransform()
     print(f"transform = {transform.__class__.__name__}")
 
-    train_dl_real = get_data_loader(
-        data=data_train,
-        batch_size=batch_size,
-        shuffle=False,
-        collate_fn=None,
-        dataset_cls=PhonemeDataset,
-        phoneme_ds_filter=phoneme_ds_filter,
-        class_weights=class_weights,
-        transform=transform,
+    gen_model = PhonemeImageGAN.load_model(
+        args_path=args["generative_model_args_path"],
+        weights_path=args["generative_model_weights_path"],
     )
-    labels_train = get_label_distribution(train_dl_real.dataset)
 
+    # synthetic training set
+    train_ds_syn = gen_model.create_synthetic_phoneme_dataset(
+        n_samples=args["generative_model_n_samples"],
+        neural_window_shape=(32, 256),
+    )
+    train_dl_syn = DataLoader(
+        train_ds_syn,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=0,
+        pin_memory=True,
+        collate_fn=None,
+    )
+
+    # synthetic test set
+    test_ds_syn = gen_model.create_synthetic_phoneme_dataset(
+        n_samples=4_000,
+        neural_window_shape=(32, 256),
+    )
+    test_dl_syn = DataLoader(
+        test_ds_syn,
+        batch_size=1,
+        shuffle=False,
+        num_workers=0,
+        pin_memory=True,
+        collate_fn=None,
+    )
+
+    # real test set
     test_file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
     with open(test_file, "rb") as handle:
-        data = pickle.load(handle)
+        test_data = pickle.load(handle)
 
-    test_dl = get_data_loader(
-        data=data,
+    test_dl_real = get_data_loader(
+        data=test_data,
         batch_size=1,
         shuffle=False,
         collate_fn=None,
@@ -120,45 +107,6 @@ def main(args: dict) -> None:
         class_weights=None,
         transform=transform,
     )
-    labels_test = get_label_distribution(test_dl.dataset)
-    class_counts_test = [labels_test[i] for i in range(1, 40)]
-    plot_phoneme_distribution(
-        class_counts_test,
-        ROOT_DIR / "plots" / "phoneme_distribution_test_set_correctly_classified_by_RNN.png",
-        "Phoneme Distribution in Test Set",
-    )
-
-    if (
-        "generative_model_args_path" in args.keys()
-        and "generative_model_weights_path" in args.keys()
-        and "generative_model_n_samples" in args.keys()
-    ):
-        print("Use real and synthetic data ...")
-
-        gen_model = PhonemeImageGAN.load_model(
-            args_path=args["generative_model_args_path"],
-            weights_path=args["generative_model_weights_path"],
-        )
-
-        synthetic_ds = gen_model.create_synthetic_phoneme_dataset(
-            n_samples=args["generative_model_n_samples"],
-            neural_window_shape=(32, 256),
-        )
-        synthetic_dl = DataLoader(
-            synthetic_ds,
-            batch_size=batch_size,
-            shuffle=True,
-            num_workers=0,
-            pin_memory=True,
-            collate_fn=None,
-        )
-
-        train_dl = MergedDataLoader(
-            loader1=synthetic_dl, loader2=train_dl_real, prop1=args["generative_model_proportion"]
-        )
-    else:
-        print("Use only real data ...")
-        train_dl = train_dl_real
 
     n_classes = len(phoneme_classes)
     args["n_classes"] = n_classes
@@ -176,8 +124,8 @@ def main(args: dict) -> None:
 
     output = train_phoneme_classifier(
         model=model,
-        train_dl=train_dl,
-        test_dl=test_dl,
+        train_dl=train_dl_syn,
+        test_dls=[test_dl_syn, test_dl_real],
         n_classes=n_classes,
         optimizer=optimizer,
         criterion=criterion,
@@ -207,7 +155,7 @@ if __name__ == "__main__":
                     timestamp = now.strftime("%Y%m%d_%H%M%S")
 
                     args["output_dir"] = (
-                        f"/data/engs-pnpl/lina4471/willett2023/phoneme_classifier/PhonemeClassifier_bs_{batch_size}__lr_{lr}__cls_ws_{cls_weights}__synthetic_{synthetic_data}_{timestamp}"
+                        f"/data/engs-pnpl/lina4471/willett2023/phoneme_classifier/PhonemeClassifier_bs_{batch_size}__lr_{lr}__cls_ws_{cls_weights}__train_on_only_synthetic_{timestamp}"
                     )
                     if synthetic_data:
                         args["generative_model_args_path"] = (
@@ -217,7 +165,6 @@ if __name__ == "__main__":
                             "/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_20240708_103107/modelWeights_epoch_6"
                         )
                         args["generative_model_n_samples"] = 50_000
-                        args["generative_model_proportion"] = 1.0
                         print(args["generative_model_weights_path"])
 
                     args["input_shape"] = (128, 8, 8)
@@ -230,13 +177,8 @@ if __name__ == "__main__":
                     args["phoneme_cls"] = list(range(1, 40))
                     args["correctness_value"] = ["C"]
 
-                    # args["n_input_features"] = 41
-                    # args["n_output_features"] = 256
-                    # args["hidden_dim"] = 512
-                    # args["n_layers"] = 2
+                    print(
+                        "\nTrain phoeneme classifier on SYNTHETIC data. Test on SYNTHETIC as well as REAL data."
+                    )
 
-                    if "generative_model_weights_path" in args.keys():
-                        print("\nTrain phoeneme classifier using REAL and SYNTHETIC data!")
-                    else:
-                        print("\nTrain phoeneme classifier using only REAL data!")
                     main(args)

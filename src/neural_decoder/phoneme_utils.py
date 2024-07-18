@@ -131,4 +131,3 @@ def assign_correctness_values(
             correctness_values[idx] = "S"
 
     return correctness_values
-
