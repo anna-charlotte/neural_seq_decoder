@@ -26,6 +26,27 @@ def plot_neural_window(
     plt.close()
 
 
+def plot_correlation_matrix(
+    corr_matrix: np.ndarray,
+    out_file: Path,
+    xlabel: str,
+    ylabel: str,
+    title: str = "Correlation matrix",
+):
+    # Plot the heatmap
+    plt.figure(figsize=(10, 8))
+
+    sns.heatmap(corr_matrix, annot=False, fmt="d", cmap="viridis")
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+
+    plt.title(title)
+
+    print(f"Save correlation matrix plot to: {out_file}")
+    plt.savefig(out_file)
+    plt.close()
+
+
 def plot_brain_signal_animation(signal: torch.Tensor, save_path: Path, title: str = "Frame") -> None:
     print(signal.size())
     # assert len(signal.size()) == 2
