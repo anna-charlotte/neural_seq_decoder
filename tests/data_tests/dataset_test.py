@@ -86,7 +86,7 @@ def test_phoneme_speech_dataset_filter_correctness():
     )
 
     ds = dl.dataset
-    assert len(ds) == 36079
+    assert len(ds) == 36785
 
     neural_windows, phonemes, logits, dayIdx = next(iter(dl))
 

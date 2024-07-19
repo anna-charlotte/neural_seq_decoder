@@ -33,7 +33,7 @@ def test_phonemes_to_signal():
     )
     phonemes = [2, 2, 4, 1, 2, 0, 2]
     gen_signal = phonemes_to_signal(gan, phonemes)
-    print(f"gen_signal.size() = {gen_signal.size()}")
+
     assert gen_signal.size(0) == 1
     assert gen_signal.size(1) == len(phonemes) * 32
 
@@ -64,7 +64,8 @@ def test_unconditional_gan():
 
     batch_size = 8
     X_real = torch.randn(batch_size, 32, 256).view(batch_size, n_channels, 8, 8)
-    y = torch.randint(0, 10, (batch_size,))
+    y = torch.tensor([phoneme_cls] * batch_size)
+    print(y)
 
     gan.to(device)
     X_real = X_real.to(device)
@@ -137,7 +138,9 @@ def test_save_and_load_model():
         "n_critic": 5,
         "clip_value": 0.01,
         "lr": 1e-4,
+        "phoneme_ds_filter": {},
     }
+
 
     gan = PhonemeImageGAN(
         latent_dim=args["latent_dim"],
