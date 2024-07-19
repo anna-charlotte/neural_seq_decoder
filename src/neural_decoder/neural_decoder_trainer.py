@@ -2,8 +2,8 @@ import json
 import os
 import pickle
 import time
+from pathlib import Path
 from typing import Any, Tuple, Type
-from pathlib import Path 
 
 import hydra
 import numpy as np

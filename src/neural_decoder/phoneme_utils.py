@@ -93,7 +93,7 @@ def assign_correctness_values(
     filtered_pred_seq = remove_silence(collapsed_pred_seq, silence_placeholder)
 
     true_seq = remove_silence(true_seq, silence_placeholder)
-    
+
     matcher = difflib.SequenceMatcher(None, filtered_pred_seq, true_seq)
 
     correctness_values = ["" for _ in pred_seq]
