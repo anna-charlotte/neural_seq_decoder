@@ -28,8 +28,18 @@ class ReorderChannelTransform:
 
 
 class TransposeTransform:
+    """
+    Transpose the specified dimensions of a tensor.
+
+    This transform swaps the given dimensions of a single input element (not a batch).
+    """
+
+    def __init__(self, dim1: int = 0, dim2: int = 1):
+        self.dim1 = dim1
+        self.dim2 = dim2
+
     def __call__(self, x):
-        return x.transpose(0, 1)
+        return x.transpose(self.dim1, self.dim2)
 
 
 class AddOneDimensionTransform:
