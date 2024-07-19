@@ -141,7 +141,6 @@ def test_save_and_load_model():
         "phoneme_ds_filter": {},
     }
 
-
     gan = PhonemeImageGAN(
         latent_dim=args["latent_dim"],
         phoneme_cls=args["phoneme_cls"],
