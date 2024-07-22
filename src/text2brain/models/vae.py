@@ -1,10 +1,9 @@
 from typing import Tuple
 
+import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import matplotlib.pyplot as plt
-
 
 # class VAE(nn.Module):
 #     def __init__(self, input_dim, hidden_dim, latent_dim):
@@ -31,7 +30,7 @@ import matplotlib.pyplot as plt
 #         mu = self.fc2_mu(h1)
 #         logvar = self.fc2_logvar(h1)
 #         return mu, logvar
-    
+
 #     def decode(self, z) -> torch.Tensor:
 #         """
 #         Decodes the latent space into reconstructed input.
@@ -48,7 +47,7 @@ import matplotlib.pyplot as plt
 #         eps = torch.randn_like(std)
 #         return mu + eps * std
 
-#     def forward(self, x):        
+#     def forward(self, x):
 #         """
 #         Forward pass through the VAE.
 #         """
@@ -122,15 +121,12 @@ class Encoder(nn.Module):
         self.model = nn.Sequential(
             nn.Conv2d(128, 64, 3, 1, 1, bias=False),  # -> (64) x 8 x 8
             nn.LeakyReLU(0.2, inplace=True),
-
             nn.Conv2d(64, 128, 3, 2, 1, bias=False),  # -> (128) x 4 x 4
             nn.BatchNorm2d(128),
             nn.LeakyReLU(0.2, inplace=True),
-
             nn.Conv2d(128, 256, 3, 2, 1, bias=False),  # -> (256) x 2 x 2
             nn.BatchNorm2d(256),
             nn.LeakyReLU(0.2, inplace=True),
-
             nn.Conv2d(256, 512, 3, 2, 1, bias=False),  # -> (512) x 1 x 1
             nn.BatchNorm2d(512),
             nn.LeakyReLU(0.2, inplace=True),
@@ -151,26 +147,20 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, latent_dim):
         super(Decoder, self).__init__()
-        self.fc = nn.Sequential(
-            nn.Linear(latent_dim, 512),  # -> (512)
-            nn.ReLU(inplace=True)
-        )
+        self.fc = nn.Sequential(nn.Linear(latent_dim, 512), nn.ReLU(inplace=True))  # -> (512)
         self.model = nn.Sequential(
             # input is (512) x 1 x 1
             nn.ConvTranspose2d(512, 256, 3, 2, 1, 1, bias=False),  # -> (256) x 2 x 2
             nn.BatchNorm2d(256),
             nn.ReLU(inplace=True),
-
             nn.ConvTranspose2d(256, 128, 3, 2, 1, 1, bias=False),  # -> (128) x 4 x 4
             nn.BatchNorm2d(128),
             nn.ReLU(inplace=True),
-
             nn.ConvTranspose2d(128, 64, 3, 2, 1, 1, bias=False),  # -> (64) x 8 x 8
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
-
             nn.ConvTranspose2d(64, 128, 3, 1, 1, bias=False),  # -> (output_channels) x 8 x 8
-            nn.Sigmoid()
+            nn.Sigmoid(),
         )
 
     def forward(self, z):
@@ -185,10 +175,10 @@ class VAE(nn.Module):
     def __init__(self, input_channels=1, latent_dim=128):
         super(VAE, self).__init__()
         self.latent_dim = latent_dim
-        
+
         # Encoder
         self.encoder = Encoder(latent_dim)
-        
+
         # Decoder
         self.decoder = Decoder(latent_dim)
 
@@ -199,7 +189,7 @@ class VAE(nn.Module):
         return self.decoder(z)
 
     def reparameterize(self, mu: torch.Tensor, logvar: torch.Tensor):
-        """ Sampling using the reparametrization trick. """
+        """Sampling using the reparametrization trick."""
         std = torch.exp(0.5 * logvar)
         eps = torch.randn_like(std)
         return mu + eps * std
@@ -228,7 +218,9 @@ class ELBOLoss(nn.Module):
 
 # implementation from: https://github.com/applied-ai-lab/genesis/blob/master/utils/geco.py
 class GECOLoss(nn.Module):
-    def __init__(self, goal, step_size, mse_reduction: str, alpha=0.99, beta_init=1.0, beta_min=1e-10, speedup=None):
+    def __init__(
+        self, goal, step_size, mse_reduction: str, alpha=0.99, beta_init=1.0, beta_min=1e-10, speedup=None
+    ):
         super(GECOLoss, self).__init__()
         self.err_ema = None
         self.goal = goal
@@ -256,8 +248,8 @@ class GECOLoss(nn.Module):
             if self.err_ema is None:
                 self.err_ema = err
             else:
-                self.err_ema = (1.0-self.alpha)*err + self.alpha*self.err_ema
-            constraint = (self.goal - self.err_ema)
+                self.err_ema = (1.0 - self.alpha) * err + self.alpha * self.err_ema
+            constraint = self.goal - self.err_ema
 
             if self.speedup is not None and constraint.item() > 0:
                 factor = torch.exp(self.speedup * self.step_size * constraint)
@@ -265,8 +257,7 @@ class GECOLoss(nn.Module):
                 factor = torch.exp(self.step_size * constraint)
 
             self.beta = (factor * self.beta).clamp(self.beta_min, self.beta_max)
-            
-        
+
         return loss
 
     def forward(self, reconstructed_x, x, mu, logvar):

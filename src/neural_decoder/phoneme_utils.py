@@ -43,7 +43,6 @@ DISTANCE_METRICS = ["frobenius", "cosine_sim", "manhattan", "mse"]
 
 
 def reorder_neural_window(tensor: torch.Tensor) -> torch.Tensor:
-    print(f"tensor.size() = {tensor.size()}")
     assert tensor.size() == (256, 32), f"size should be (256, 32) but is: {tensor.size()}"
     reordered_tensor = torch.empty_like(tensor)
     reordered_tensor[:128] = tensor[CHANNEL_ORDER]
