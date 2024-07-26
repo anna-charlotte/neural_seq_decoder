@@ -8,6 +8,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from text2brain.models.vae_interface import VAEBase
+
 
 # convolutions only over the channels. Input size (1, 256, 32)
 class Encoder_1_256_32(nn.Module):
@@ -201,9 +203,9 @@ class Decoder_4_64_32(nn.Module):
         return h
 
 
-class VAE(nn.Module):
+class VAE(VAEBase):
     def __init__(self, latent_dim, input_shape: Tuple[int, int, int]):
-        super(VAE, self).__init__()
+        super(VAE, self).__init__(latent_dim, input_shape)
         self.latent_dim = latent_dim
         self.input_shape = input_shape
 

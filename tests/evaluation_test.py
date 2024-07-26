@@ -13,6 +13,7 @@ from neural_decoder.neural_decoder_trainer import get_data_loader
 from neural_decoder.phoneme_utils import ROOT_DIR
 from neural_decoder.transforms import TransposeTransform
 from text2brain.visualization import plot_correlation_matrix
+from text2brain.models.vae_interface import VAEBase
 
 
 def test_compute_correlation_matrix():
@@ -42,20 +43,26 @@ def test_compute_correlation_matrix():
         ), "The correlation matrix contains values outside the range [-1, 1]."
 
 
-class DummyVAE(nn.Module):
-    def __init__(self):
-        super(DummyVAE, self).__init__()
-        self.encoder = DummyEncoder()
+class DummyVAE(VAEBase):
+    def __init__(self, latent_dim=10, input_shape=(3, 28, 28)):
+        super(DummyVAE, self).__init__(latent_dim, input_shape)
+        self.encoder = DummyEncoder(latent_dim)
 
     def forward(self, x):
         means, logvars = self.encoder(x)
         return x, means, logvars
+    
+    def encode(self, x):
+        return self.encoder(x)
+    
+    def decode(self, z):
+        return z
 
 
 class DummyEncoder(nn.Module):
-    def __init__(self):
+    def __init__(self, latent_dim):
         super(DummyEncoder, self).__init__()
-        self.latent_dim = 10
+        self.latent_dim = latent_dim
 
     def forward(self, x):
         means = torch.zeros((x.size(0), self.latent_dim))
