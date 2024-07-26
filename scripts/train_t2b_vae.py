@@ -7,8 +7,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.optim as optim
+from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
 
+from data.augmentations import GaussianSmoothing
 from data.dataset import PhonemeDataset
 from neural_decoder.neural_decoder_trainer import get_data_loader
 from neural_decoder.phoneme_utils import ROOT_DIR
@@ -18,10 +20,39 @@ from neural_decoder.transforms import (
     SoftsignTransform,
     TransposeTransform,
 )
-from text2brain.models.phoneme_image_gan import PhonemeImageGAN
 from text2brain.models.vae import VAE, ELBOLoss, GECOLoss
 from text2brain.visualization import plot_brain_signal_animation
 from utils import set_seeds
+
+
+def plot_loss_mse_kld(all_losses, all_mse, all_kld, out_file) -> None:
+    fig, axes = plt.subplots(3, 1, figsize=(12, 18))
+
+    # plot training loss on the first subplot
+    axes[0].plot(all_losses, label="Training Loss (ELBOLoss)", linewidth=0.5)
+    axes[0].set_title("Training Loss over Epochs")
+    axes[0].set_xlabel("Epoch")
+    axes[0].set_ylabel("Training Loss")
+    axes[0].legend()
+
+    # plot MSE on the first subplot
+    axes[1].plot(all_mse, label="MSE", linewidth=0.5)
+    axes[1].set_title("MSE over Epochs")
+    axes[1].set_xlabel("Epoch")
+    axes[1].set_ylabel("MSE Loss")
+    axes[1].legend()
+
+    # Plot KLD on the second subplot
+    axes[2].plot(all_kld, label="KLD", linewidth=0.5)
+    axes[2].set_title("KLD over Epochs")
+    axes[2].set_xlabel("Epoch")
+    axes[2].set_ylabel("KLD Loss")
+    axes[2].legend()
+
+    plt.tight_layout()
+    plt.savefig(out_file)
+
+    plt.close()
 
 
 def main(args: dict) -> None:
@@ -44,9 +75,12 @@ def main(args: dict) -> None:
                 TransposeTransform(0, 1),
                 ReorderChannelTransform(),
                 AddOneDimensionTransform(dim=0),
+                GaussianSmoothing(256, kernel_size=20, sigma=2.0, dim=1),
                 SoftsignTransform(),
             ]
         )
+
+    phoneme_cls = args["phoneme_cls"]
 
     # load train and test data
     train_dl = get_data_loader(
@@ -55,7 +89,7 @@ def main(args: dict) -> None:
         shuffle=True,
         collate_fn=None,
         dataset_cls=PhonemeDataset,
-        phoneme_ds_filter={"correctness_value": ["C"], "phoneme_cls": [3]},
+        phoneme_ds_filter={"correctness_value": ["C"], "phoneme_cls": phoneme_cls},
         transform=transform,
     )
 
@@ -71,17 +105,20 @@ def main(args: dict) -> None:
         shuffle=False,
         collate_fn=None,
         dataset_cls=PhonemeDataset,
-        phoneme_ds_filter={"correctness_value": ["C"]},
+        phoneme_ds_filter={"correctness_value": ["C"], "phoneme_cls": phoneme_cls},
         transform=transform,
     )
 
-    # model = VAE(input_dim=256*32, hidden_dim=400, latent_dim=100).to(device)
-    model = VAE(input_channels=1, latent_dim=256).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=args["lr"])
-    loss_fn = ELBOLoss(mse_reduction="sum")  # GECOLoss(goal=0.2, step_size=1e-2, mse_reduction='sum')
-    loss_fn.to(device)
+    model = VAE(latent_dim=args["latent_dim"], input_shape=args["input_shape"]).to(device)
 
-    # noise_vector = torch.randn(1, gan._g.latent_dim, device=gan.device)
+    optimizer = optim.Adam(model.parameters(), lr=args["lr"])
+    if args["loss"] == "elbo":
+        loss_fn = ELBOLoss(reduction="sum")  # "none"
+    elif args["loss"] == "geco":
+        loss_fn = GECOLoss(goal=0.2, step_size=1e-2, reduction="sum")
+        loss_fn.to(device)
+    print(f"loss_fn.__class__.__name__ = {loss_fn.__class__.__name__}")
+
     n_epochs = args["n_epochs"]
 
     with open(out_dir / "args", "wb") as file:
@@ -89,12 +126,30 @@ def main(args: dict) -> None:
     with open(out_dir / "args.json", "w") as file:
         json.dump(args, file, indent=4)
 
+    writer = SummaryWriter(log_dir=str(out_dir / "tb_logs"))
+
     all_mse = []
     all_kld = []
-    all_train_loss = []
+    all_epoch_loss = []
+
+    class_loss = {label: 0.0 for label in phoneme_cls}
+    class_mse = {label: 0.0 for label in phoneme_cls}
+    class_kld = {label: 0.0 for label in phoneme_cls}
+    class_counts = {label: 0 for label in phoneme_cls}
+
+    plot_dir = (
+        ROOT_DIR
+        / "evaluation"
+        / "vae"
+        / f"reconstructed_images_model_input_shape_{'_'.join(map(str, args['input_shape']))}__lr_{args['lr']}__loss_{args['loss']}__gaussiansmoothing_20_2.0__bs_{batch_size}__all_phoneme_classes_39"
+    )
+    plot_dir.mkdir(parents=True, exist_ok=True)
+
     for epoch in range(n_epochs):
         model.train()
-        train_loss = 0.0
+        epoch_losses = 0.0
+        epoch_klds = 0.0
+        epoch_mses = 0.0
 
         for i, data in enumerate(train_dl):
             X, y, _, _ = data
@@ -107,40 +162,43 @@ def main(args: dict) -> None:
             loss = mse + kld
             # loss = loss_fn(X_recon, X, mu, logvar)
             loss.backward()
-            train_loss += loss.item()
+            epoch_losses += loss.item()
+            epoch_mses += mse.item()
+            epoch_klds += kld.item()
             optimizer.step()
 
-            # all_mse.append(mse.cpu().detach().numpy())
-            # all_kld.append(kld.cpu().detach().numpy())
-            all_train_loss.append(loss.cpu().detach().numpy())
-
             # output training stats
+            if i % 100 == 0:
+                writer.add_scalar("Loss/Train", loss.item(), epoch * len(train_dl) + i)
+                writer.add_scalar("MSE/Train", mse.item(), epoch * len(train_dl) + i)
+                writer.add_scalar("KLD/Train", kld.item(), epoch * len(train_dl) + i)
+
             if i % 500 == 0:
                 print(f"[{epoch}/{n_epochs}][{i}/{len(train_dl)}] curr_loss: {loss.item()} ")
-                plot_original_vs_reconstructed_image(
-                    X[0][0].cpu().detach().numpy(),
-                    X_recon[0][0].cpu().detach().numpy(),
-                    ROOT_DIR / "evaluation" / "vae" / f"a_reconstructed_image_{epoch}_{i}.png",
-                )
+                for j in range(10):
+                    plot_original_vs_reconstructed_image(
+                        X[j][0].cpu().detach().numpy(),
+                        X_recon[j][0].cpu().detach().numpy(),
+                        plot_dir / f"reconstructed_image_{epoch}_{i}__cls_{y[j]}.png",
+                    )
 
-    plt.figure(figsize=(10, 6))
-    plt.plot(all_mse, label="MSE", linewidth=0.5)
-    plt.plot(all_kld, label="KLD", linewidth=0.5)
-    plt.plot(all_train_loss, label="Training Loss", linewidth=0.5)
+                model.save_state_dict(out_dir / f"modelWeights_epoch_{epoch}")
 
-    # Adding titles and labels
-    plt.title("Losses over Epochs")
-    plt.xlabel("Batch")
-    plt.ylabel("Loss")
-    plt.yscale("log")
-    plt.legend()
+        all_epoch_loss.append(epoch_loss / batch_size)
+        all_mse.append(epoch_mse / batch_size)
+        all_kld.append(epoch_kld / batch_size)
 
-    # Display the plot
-    plt.savefig(ROOT_DIR / "evaluation" / "vae" / "losses_train.png")
+        writer.add_scalar("Epoch_Loss/Train", epoch_loss, epoch)
+        writer.add_scalar("Epoch_MSE/Train", epoch_mse, epoch)
+        writer.add_scalar("Epoch_KLD/Train", epoch_kld, epoch)
+
+        plot_loss_mse_kld(all_epoch_loss, all_mse, all_kld, out_file=plot_dir / "losses_train.png")
+
+    writer.close()
 
 
 def plot_original_vs_reconstructed_image(X: np.ndarray, X_recon: np.ndarray, out_file: Path) -> None:
-    fig, axes = plt.subplots(1, 2, figsize=(7, 5))
+    fig, axes = plt.subplots(1, 2, figsize=(5, 5))
 
     # Set the color range
     vmin, vmax = -1, 1
@@ -166,31 +224,37 @@ def plot_original_vs_reconstructed_image(X: np.ndarray, X_recon: np.ndarray, out
 
 
 if __name__ == "__main__":
-    now = datetime.now()
-    timestamp = now.strftime("%Y%m%d_%H%M%S")
 
-    args = {}
-    args["seed"] = 0
-    args["device"] = "cuda"
-    args["batch_size"] = 16
+    for input_shape in [(128, 8, 8)]:  # [(4, 64, 32), (1, 256, 32), (128, 8, 8)]:
+        for loss in ["elbo"]:  # ["elbo", "geco"]:
+            for lr in [1e-3]:  # [1e-3, 1e-4, 1e-5]:
+                now = datetime.now()
+                timestamp = now.strftime("%Y%m%d_%H%M%S")
 
-    args["input_dim"] = 100
-    args["hidden_dim"] = 100
-    args["latent_dim"] = 256
+                args = {}
+                args["seed"] = 0
+                args["device"] = "cuda"
+                args["batch_size"] = 64
+                args["loss"] = loss
+                args["phoneme_cls"] = list(range(1, 40))
 
-    args["n_epochs"] = 100
-    args["lr"] = 0.0001
+                # args["input_dim"] = 100
+                args["latent_dim"] = 256
+                args["input_shape"] = input_shape
 
-    args["transform"] = "softsign"
+                args["n_epochs"] = 400
+                args["lr"] = lr
 
-    args["train_set_path"] = (
-        "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
-    )
-    args["test_set_path"] = (
-        "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
-    )
-    args["output_dir"] = (
-        f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_unconditional_{timestamp}"
-    )
+                args["transform"] = "softsign"
 
-    main(args)
+                args["train_set_path"] = (
+                    "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
+                )
+                args["test_set_path"] = (
+                    "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
+                )
+                args["output_dir"] = (
+                    f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_unconditional_{timestamp}"
+                )
+
+                main(args)
