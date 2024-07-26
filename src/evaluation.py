@@ -1,7 +1,12 @@
 import numpy as np
+import torch
+from scipy.signal import correlate2d
+from scipy.stats import multivariate_normal
+
+from text2brain.models.vae import VAE
 
 
-def compute_correlation_matrix(data: np.ndarray):
+def compute_correlation_matrix(data: np.ndarray) -> np.ndarray:
     """
     Compute the correlation matrix for the given data.
 
@@ -26,3 +31,25 @@ def compute_correlation_matrix(data: np.ndarray):
 
     corr_matrix = np.corrcoef(data)
     return corr_matrix
+
+
+def compute_cross_correlation(arr1: np.ndarray, arr2: np.ndarray) -> np.ndarray:
+    assert arr1.dim() == 2, f"Array is of shape {arr1.shape}, should be 2-dim."
+    assert arr1.size() == arr2.size(), f"Given arrays are not of same shape: {arr1.shape} != {arr2.shape}"
+    cross_corr = correlate2d(arr1, arr2, mode="full")
+    return cross_corr
+
+
+def compute_likelihood(mean: torch.Tensor, logvar: torch.Tensor, x: torch.Tensor, vae: VAE):
+    print(f"mean.size() = {mean.size()}")
+    print(f"logvar.size() = {logvar.size()}")
+    print(f"x.size() = {x.size()}")
+
+    x_mean, x_logvar = vae.encode(x)
+
+    var = torch.exp(logvar)
+    std = torch.sqrt(var)
+    cov = torch.diag_embed(std)
+    mvn = multivariate_normal(mean.numpy(), cov.numpy())
+
+    return mvn.logpdf(x.numpy())
