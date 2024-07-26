@@ -672,7 +672,7 @@ true_seq = torch.tensor(
         0,
         0,
     ],
-    device="cuda:0",
+    # device="cuda:0",
     dtype=torch.int32,
 )
 

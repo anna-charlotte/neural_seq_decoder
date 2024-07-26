@@ -205,6 +205,3 @@ def test_create_synthetic_phoneme_dataset():
     print(len(ds))
 
     assert len(ds) == n_samples
-
-
-test_create_synthetic_phoneme_dataset()
