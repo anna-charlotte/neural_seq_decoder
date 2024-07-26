@@ -261,7 +261,7 @@ class VAE(VAEBase):
         return model
 
 
-def compute_mean_logvar_mse(vae: VAE, X: torch.Tensor) -> SimpleNamespace:
+def compute_mean_logvar_mse(vae: VAEBase, X: torch.Tensor) -> SimpleNamespace:
     sum_means = torch.zeros(vae.latent_dim)
     sum_logvars = torch.zeros(vae.latent_dim)
     sum_mse = torch.tensor(0.0)
@@ -280,7 +280,7 @@ def compute_mean_logvar_mse(vae: VAE, X: torch.Tensor) -> SimpleNamespace:
     return SimpleNamespace(mean=mean, logvar=logvar, mse=mse)
 
 
-def get_sample(vae: VAE, mean: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
+def get_sample(vae: VAEBase, mean: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
     z = vae.reparametrize(mu=mean, logvar=logvar)
     recon_x = vae.decode(z=z)
     return recon_x
