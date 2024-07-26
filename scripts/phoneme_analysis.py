@@ -11,16 +11,18 @@ import seaborn as sns
 import torch
 from torchvision import transforms
 
-from data.dataset import PhonemeDataset
+from data.dataset import (
+    PhonemeDataset,
+    load_averaged_windows_for_all_classes,
+    save_averaged_windows_for_all_classes,
+)
 from neural_decoder.neural_decoder_trainer import get_data_loader
 from neural_decoder.phoneme_utils import (
     DISTANCE_METRICS,
     PHONE_DEF,
     PHONE_DEF_SIL,
     ROOT_DIR,
-    load_averaged_windows_for_all_classes,
     reorder_neural_window,
-    save_averaged_windows_for_all_classes,
 )
 from neural_decoder.transforms import (
     AddOneDimensionTransform,
@@ -156,7 +158,7 @@ def compute_distances(
     )
 
 
-def extract_samples_for_each_label(train_file: Path, n_samples: int, classes: list, reorder_channels: bool):
+def extract_samples_for_each_label(train_file: Path, n_samples: int, classes: list, transform=None):
     print(f"Extract {n_samples} samples for each class ...")
     with open(train_file, "rb") as handle:
         train_data = pickle.load(handle)
@@ -166,6 +168,7 @@ def extract_samples_for_each_label(train_file: Path, n_samples: int, classes: li
         batch_size=1,
         shuffle=True,
         collate_fn=None,
+        transform=transform,
         dataset_cls=PhonemeDataset,
         phoneme_ds_filter={"correctness_value": "C", "phoneme_cls": classes},
     )
@@ -174,18 +177,14 @@ def extract_samples_for_each_label(train_file: Path, n_samples: int, classes: li
     samples_per_label = {idx: [] for idx in range(len(classes))}
     for sample in train_ds:
         X, label, _, _ = sample
-        X = torch.transpose(X, 0, 1)
         key = classes.index(label.item())
-        if len(samples_per_label[key]) < n_samples:
-            if reorder_channels:
-                X = reorder_neural_window(X)
 
+        if len(samples_per_label[key]) < n_samples:
             samples_per_label[key].append(X)
+
         if all(len(samples) >= n_samples for samples in samples_per_label.values()):
             break
 
-    # Convert defaultdict to a regular dictionary for ease of use
-    samples_per_label = dict(samples_per_label)
     print("Done.")
     return samples_per_label
 
@@ -199,80 +198,74 @@ def main(args: dict) -> None:
     n_classes = 39
     phoneme_classes = list(range(1, n_classes + 1))
 
-    device = args["device"]
-    batch_size = args["batch_size"]
-    all_averaged_windows = {}
-    sample_windows_per_phoneme = {i: [] for i in range(n_classes)}
+    # # AVERAGE WINDOWS ANALYSIS
+    # all_averaged_windows = {}
+    # sample_windows_per_phoneme = {i: [] for i in range(n_classes)}
 
-    avg_window_file = ROOT_DIR / "evaluation" / "phoneme_class_to_average_window_with_reordering.pt"
-    # save_averaged_windows_for_all_classes(
-    #     train_file=args["train_set_path"],
-    #     reorder_channels=True,
-    #     out_file=avg_window_file
-    # )
-    phoneme2avg_window = load_averaged_windows_for_all_classes(avg_window_file)
+    # avg_window_file = ROOT_DIR / "evaluation" / "phoneme_class_to_average_window_with_reordering.pt"
+    # # save_averaged_windows_for_all_classes(
+    # #     train_file=args["train_set_path"],
+    # #     reorder_channels=True,
+    # #     out_file=avg_window_file
+    # # )
+    # phoneme2avg_window = load_averaged_windows_for_all_classes(avg_window_file)
 
-    overall_min_value = float("inf")
-    overall_max_value = -float("inf")
+    # overall_min_value = float("inf")
+    # overall_max_value = -float("inf")
 
-    for phoneme_cls in phoneme_classes:
-        avg_window = phoneme2avg_window[phoneme_cls]["avg_window"]
+    # for avg_window in [phoneme2avg_window[i]["avg_window"] for i in phoneme_classes]:
+    #     min_value = torch.min(avg_window).item()
+    #     max_value = torch.max(avg_window).item()
 
-        min_value = torch.min(avg_window).item()
+    #     if min_value < overall_min_value:
+    #         overall_min_value = min_value
+    #     if max_value > overall_max_value:
+    #         overall_max_value = max_value
 
-        if min_value < overall_min_value:
-            overall_min_value = min_value
-        max_value = torch.max(avg_window).item()
-        if max_value > overall_max_value:
-            overall_max_value = max_value
+    # print(f"overall_min_value = {overall_min_value}")
+    # print(f"overall_max_value = {overall_max_value}")
 
-    print(f"overall_min_value = {overall_min_value}")
-    print(f"overall_max_value = {overall_max_value}")
+    # # plot average windows
+    # print(f"Plotting the average windows ...")
+    # for phoneme_cls in phoneme_classes:
+    #     avg_window = phoneme2avg_window[phoneme_cls]["avg_window"]
+    #     n_samples = phoneme2avg_window[phoneme_cls]["n_samples"]
 
-    # plot average windows
-    print(f"Plotting the average windows ...")
-    for phoneme_cls in phoneme_classes:
-        avg_window = phoneme2avg_window[phoneme_cls]["avg_window"]
-        n_samples = phoneme2avg_window[phoneme_cls]["n_samples"]
+    #     phoneme_name = (
+    #         f"{phoneme_cls}" if phoneme_cls == 0 else f'"{PHONE_DEF_SIL[phoneme_cls-1]}" ({phoneme_cls})'
+    #     )
+    #     title = f"Averaged neural window for phoneme class {phoneme_name} (averaged over {n_samples} samples)"
+    #     out_file = (
+    #         ROOT_DIR
+    #         / "plots"
+    #         / "averaged_windows_per_phoneme_with_channel_reordering__different_ranges_on_plots"
+    #         / f"averaged_window_phoneme_{phoneme_cls}.png"
+    #     )
+    #     plot_neural_window(avg_window, out_file, title)
 
-        phoneme_name = (
-            f"{phoneme_cls}" if phoneme_cls == 0 else f'"{PHONE_DEF_SIL[phoneme_cls-1]}" ({phoneme_cls})'
-        )
-        title = f"Averaged neural window for phoneme class {phoneme_name} (averaged over {n_samples} samples)"
-        out_file = (
-            ROOT_DIR
-            / "plots"
-            / "averaged_windows_per_phoneme_with_channel_reordering__different_ranges_on_plots"
-            / f"averaged_window_phoneme_{phoneme_cls}.png"
-        )
-        plot_neural_window(avg_window, out_file, title)
+    # print("Done.")
 
-    print("Done.")
-
-    sample_windows_per_phoneme = extract_samples_for_each_label(
-        args["train_set_path"], 13, range(0, 41), reorder_channels=True
-    )
     transform = transforms.Compose(
         [
-            # TransposeTransform(),
-            # ReorderChannelTransform(),
-            # AddOneDimensionTransform(dim=0),
-            SoftsignTransform()
+            TransposeTransform(),
+            ReorderChannelTransform(),
+            AddOneDimensionTransform(dim=0),
+            SoftsignTransform(),
         ]
     )
+    sample_windows_per_phoneme = extract_samples_for_each_label(
+        train_file=args["train_set_path"],
+        n_samples=20,
+        classes=range(1, 40),
+        transform=transform,
+    )
+    print(f"len(sample_windows_per_phoneme) = {len(sample_windows_per_phoneme)}")
 
     print(f"Plotting the sample windows ...")
     for phoneme_cls in phoneme_classes:
         samples = sample_windows_per_phoneme[phoneme_cls][:10]
-        print(f"len(samples) = {len(samples)}")
-        for i, s in enumerate(samples):
-            s = s.squeeze()
-            print(f"s.size() = {s.size()}")
-            s = transform(s)
-            print(f"s.size() = {s.size()}")
-            s = s.squeeze()
-            print(f"s.size() = {s.size()}")
 
+        for i, s in enumerate(samples):
             phoneme_name = (
                 f"{phoneme_cls}" if phoneme_cls == 0 else f'"{PHONE_DEF_SIL[phoneme_cls-1]}" ({phoneme_cls})'
             )
@@ -285,41 +278,22 @@ def main(args: dict) -> None:
             )
             sample_dir.mkdir(parents=True, exist_ok=True)
             out_file = sample_dir / f"sample_window_softsign__phoneme_{phoneme_cls}__sample_{i}.png"
-            plot_neural_window(s, out_file, title)
+            plot_neural_window(s.squeeze(), out_file, title)
 
-    print(f"Plotting the sample windows ...")
-    for phoneme_cls in phoneme_classes:
-        samples = sample_windows_per_phoneme[phoneme_cls][:10]
-        print(f"len(samples) = {len(samples)}")
-        for i, s in enumerate(samples):
-            s = s.squeeze()
-            print(f"s.size()")
-            s = transform(s)
-            s = s.squeeze()
+    # # label index to windows
+    # all_averaged_windows = {i: phoneme2avg_window[p]["avg_window"] for i, p in enumerate(phoneme_classes)}
 
-            phoneme_name = (
-                f"{phoneme_cls}" if phoneme_cls == 0 else f'"{PHONE_DEF_SIL[phoneme_cls-1]}" ({phoneme_cls})'
-            )
-            title = f"Sample neural window for phoneme class {phoneme_name}"
-            sample_dir = ROOT_DIR / "plots" / f"samples_windows_phoneme_{phoneme_cls}"
-            sample_dir.mkdir(parents=True, exist_ok=True)
-            out_file = sample_dir / f"sample_window_phoneme_{phoneme_cls}__sample_{i}.png"
-            plot_neural_window(s, out_file, title)
-
-    # label index to windows
-    all_averaged_windows = {i: phoneme2avg_window[p]["avg_window"] for i, p in enumerate(phoneme_classes)}
-
-    print(f"Plot distance metric plots ...")
-    for dist_metric in DISTANCE_METRICS:
-        compute_distances(
-            all_averaged_windows,
-            sample_windows_per_phoneme,
-            out_dir=ROOT_DIR
-            / "plots"
-            / "averaged_windows_per_phoneme_with_channel_reordering__different_ranges_on_plots",
-            distance_metric=dist_metric,
-        )
-    print("Done.")
+    # print(f"Plot distance metric plots ...")
+    # for dist_metric in DISTANCE_METRICS:
+    #     compute_distances(
+    #         all_averaged_windows,
+    #         sample_windows_per_phoneme,
+    #         out_dir=ROOT_DIR
+    #         / "plots"
+    #         / "averaged_windows_per_phoneme_with_channel_reordering__different_ranges_on_plots",
+    #         distance_metric=dist_metric,
+    #     )
+    # print("Done.")
 
     # # plot logits and probailities for the phonemes
     # for phoneme_cls in phoneme_classes:
