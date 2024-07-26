@@ -5,6 +5,23 @@
 
 ## Installation
 
+```pip install -e .```
+
+# Dependencies
+```
+CMake >= 3.14
+gcc >= 10.1
+pytorch==1.13.1
+```
+
+clone speechBCI 
+change name of neural_decoder to neuralDecoder in NeuralDecoder/setup.py
+
+or clone the forked version
+
+cd LanguageModelDecoder/runtime/server/x86
+python setup.py install
+cd NeuralDecoder
 pip install -e .
 
 ## How to run
