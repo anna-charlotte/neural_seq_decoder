@@ -1,9 +1,11 @@
+import pickle
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Tuple
+
 import torch
 import torch.nn as nn
-import pickle
-from pathlib import Path
+
 
 class VAEBase(ABC, nn.Module):
     def __init__(self, latent_dim, input_shape: Tuple[int, int, int], device: str):

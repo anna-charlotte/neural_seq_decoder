@@ -272,7 +272,7 @@ def compute_mean_logvar_mse(vae: VAEBase, dl: DataLoader) -> SimpleNamespace:
         sum_means += mean.squeeze().cpu()
         sum_logvars += logvar.squeeze().cpu()
         sum_mse += mse.item()
-        
+
     mean = sum_means / len(dl)
     logvar = sum_logvars / len(dl)
     mse = sum_mse / len(dl)

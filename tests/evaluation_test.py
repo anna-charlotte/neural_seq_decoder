@@ -12,8 +12,8 @@ from evaluation import compute_correlation_matrix, compute_likelihood
 from neural_decoder.neural_decoder_trainer import get_data_loader
 from neural_decoder.phoneme_utils import ROOT_DIR
 from neural_decoder.transforms import TransposeTransform
-from text2brain.visualization import plot_correlation_matrix
 from text2brain.models.vae_interface import VAEBase
+from text2brain.visualization import plot_correlation_matrix
 
 
 def test_compute_correlation_matrix():
@@ -51,10 +51,10 @@ class DummyVAE(VAEBase):
     def forward(self, x):
         means, logvars = self.encoder(x)
         return x, means, logvars
-    
+
     def encode(self, x):
         return self.encoder(x)
-    
+
     def decode(self, z):
         return z
 

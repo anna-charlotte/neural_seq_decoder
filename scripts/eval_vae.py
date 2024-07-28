@@ -29,41 +29,50 @@ def plot_means_and_stds(means: np.ndarray, stds: np.ndarray, phoneme: str):
     # FIRST PLOT
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
 
-    ax1.hist(means, bins=20, color='blue', edgecolor='black')
-    ax1.set_title('Histogram of Mean Values (256 dim)')
-    ax1.set_xlabel('Mean Value')
-    ax1.set_ylabel('Frequency')
+    ax1.hist(means, bins=20, color="blue", edgecolor="black")
+    ax1.set_title("Histogram of Mean Values (256 dim)")
+    ax1.set_xlabel("Mean Value")
+    ax1.set_ylabel("Frequency")
 
-    ax2.hist(stds, bins=20, color='green', edgecolor='black')
-    ax2.set_title('Histogram of Standard Deviation (STD) Values (256 dim))')
-    ax2.set_xlabel('STD Value')
-    ax2.set_ylabel('Frequency')
+    ax2.hist(stds, bins=20, color="green", edgecolor="black")
+    ax2.set_title("Histogram of Standard Deviation (STD) Values (256 dim))")
+    ax2.set_xlabel("STD Value")
+    ax2.set_ylabel("Frequency")
 
-    fig.suptitle(f'VAE, Average Means and Standard Deviations for all phonemes (range(1, 39))', fontsize=16)
+    fig.suptitle(f"VAE, Average Means and Standard Deviations for all phonemes (range(1, 39))", fontsize=16)
     plt.tight_layout()
 
-    out_file = ROOT_DIR / "evaluation" / "vae" / "latent_dim_evaluation" / f"average_means_and_stds__phoneme_{phoneme}__histogram.png" 
+    out_file = (
+        ROOT_DIR
+        / "evaluation"
+        / "vae"
+        / "latent_dim_evaluation"
+        / f"average_means_and_stds__phoneme_{phoneme}__histogram.png"
+    )
     plt.savefig(out_file)
     print(f"Saved plot to: {out_file}")
 
-
-    #SECOND PLOT
+    # SECOND PLOT
     channels = list(range(1, len(means) + 1))  # channels from 1 to 256
 
     plt.figure(figsize=(12, 6))
-    plt.scatter(channels, means, color='blue', label='Mean Values', marker='x')
-    plt.scatter(channels, stds, color='green', label='STD Values', marker='o')
+    plt.scatter(channels, means, color="blue", label="Mean Values", marker="x")
+    plt.scatter(channels, stds, color="green", label="STD Values", marker="o")
 
-    plt.title('Mean and STD Values for Each Channel')
-    plt.xlabel('Channel')
-    plt.ylabel('Value')
+    plt.title("Mean and STD Values for Each Channel")
+    plt.xlabel("Channel")
+    plt.ylabel("Value")
     plt.legend()
 
-    out_file = ROOT_DIR / "evaluation" / "vae" / "latent_dim_evaluation" / f"average_means_and_stds__phoneme_{phoneme}__per_channel.png" 
+    out_file = (
+        ROOT_DIR
+        / "evaluation"
+        / "vae"
+        / "latent_dim_evaluation"
+        / f"average_means_and_stds__phoneme_{phoneme}__per_channel.png"
+    )
     plt.savefig(out_file)
     print(f"Saved plot to: {out_file}")
-
-
 
 
 def main() -> None:
@@ -92,7 +101,7 @@ def main() -> None:
 
     # load vae from args and state dict
     vae = VAE.load_model(args_file, weights_file)
-    
+
     with open(args["train_set_path"], "rb") as handle:
         train_data = pickle.load(handle)
 
@@ -108,10 +117,9 @@ def main() -> None:
             ]
         )
 
-
-    with open(ROOT_DIR / "evaluation" / "vae" / "latent_dim_evaluation" / "label2metrics.json", 'r') as file:
+    with open(ROOT_DIR / "evaluation" / "vae" / "latent_dim_evaluation" / "label2metrics.json", "r") as file:
         label2metrics = json.load(file)
-    
+
     means = []
     stds = []
     n_samples = []
@@ -130,7 +138,6 @@ def main() -> None:
     print(f"weighted_means.shape = {weighted_means.shape}")
     print(f"weighted_stds.shape = {weighted_stds.shape}")
     plot_means_and_stds(means=weighted_means, stds=weighted_stds, phoneme="all")
-
 
     label2metrics = {}
     for phoneme in args["phoneme_cls"]:
@@ -156,23 +163,14 @@ def main() -> None:
         label2metrics[phoneme]["std"] = average_stds.tolist()
         label2metrics[phoneme]["mse"] = float(results.mse)
 
-        plot_means_and_stds(means=average_means, stds=average_stds, phoneme=f"{phoneme} ({n_samples} samples)")
+        plot_means_and_stds(
+            means=average_means, stds=average_stds, phoneme=f"{phoneme} ({n_samples} samples)"
+        )
 
-        with open(ROOT_DIR / "evaluation" / "vae" / "latent_dim_evaluation" / "label2metrics.json", 'w') as file:
+        with open(
+            ROOT_DIR / "evaluation" / "vae" / "latent_dim_evaluation" / "label2metrics.json", "w"
+        ) as file:
             json.dump(label2metrics, file, indent=4)
-
-
-
-
-
-
-
-
-
-
-
-
-
 
         # for i, data in enumerate(train_dl):
         #     X, y, _, _ = data
