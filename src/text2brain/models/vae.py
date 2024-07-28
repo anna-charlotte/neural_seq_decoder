@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.data import DataLoader
 
 from text2brain.models.vae_interface import VAEBase
 
@@ -204,20 +205,18 @@ class Decoder_4_64_32(nn.Module):
 
 
 class VAE(VAEBase):
-    def __init__(self, latent_dim, input_shape: Tuple[int, int, int]):
-        super(VAE, self).__init__(latent_dim, input_shape)
-        self.latent_dim = latent_dim
-        self.input_shape = input_shape
+    def __init__(self, latent_dim, input_shape: Tuple[int, int, int], device: str = "cpu"):
+        super(VAE, self).__init__(latent_dim, input_shape, device)
 
         if input_shape == (1, 256, 32):
-            self.encoder = Encoder_1_256_32(latent_dim)
-            self.decoder = Decoder_1_256_32(latent_dim)
+            self.encoder = Encoder_1_256_32(latent_dim).to(device)
+            self.decoder = Decoder_1_256_32(latent_dim).to(device)
         elif input_shape == (4, 64, 32):
-            self.encoder = Encoder_4_64_32(latent_dim)
-            self.decoder = Decoder_4_64_32(latent_dim)
+            self.encoder = Encoder_4_64_32(latent_dim).to(device)
+            self.decoder = Decoder_4_64_32(latent_dim).to(device)
         elif input_shape == (128, 8, 8):
-            self.encoder = Encoder_128_8_8(latent_dim)
-            self.decoder = Decoder_128_8_8(latent_dim)
+            self.encoder = Encoder_128_8_8(latent_dim).to(device)
+            self.decoder = Decoder_128_8_8(latent_dim).to(device)
         else:
             raise ValueError(
                 f"Invalid input shape ({input_shape}), we don't have a VAE version for this yet."
@@ -250,32 +249,33 @@ class VAE(VAEBase):
         with open(args_path, "rb") as file:
             args = pickle.load(file)
 
-        print(f"\nargs = {args}")
-
-        model = cls(latent_dim=args["latent_dim"], input_shape=args["input_shape"]).to(args["device"])
-
+        model = cls(latent_dim=args["latent_dim"], input_shape=args["input_shape"], device=args["device"])
         model.load_state_dict(torch.load(weights_path))
-        # with open(weights_path, "rb") as file:
-        # model.load_state_dict(torch.load(file))
 
         return model
 
 
-def compute_mean_logvar_mse(vae: VAEBase, X: torch.Tensor) -> SimpleNamespace:
+def compute_mean_logvar_mse(vae: VAEBase, dl: DataLoader) -> SimpleNamespace:
+    assert dl.batch_size == 1, f"Expected a dataloader with batchsize 1, give: batch_size={dl.batch_size}"
+    vae.eval()
+
     sum_means = torch.zeros(vae.latent_dim)
     sum_logvars = torch.zeros(vae.latent_dim)
     sum_mse = torch.tensor(0.0)
 
-    for x in X:
-        X_recon, mean, logvar = vae(x)
-        sum_means += mean
-        sum_logvars += logvar
-        mse = F.mse_loss(X_recon, x, reduction="mean")
-        sum_mse += mse.item()
+    for batch in dl:
+        X, _, _, _ = batch
+        X = X.to(vae.device)
+        X_recon, mean, logvar = vae(X)
+        mse = F.mse_loss(X_recon, X, reduction="mean")
 
-    mean = sum_means / len(X)
-    logvar = sum_logvars / len(X)
-    mse = sum_mse / len(X)
+        sum_means += mean.squeeze().cpu()
+        sum_logvars += logvar.squeeze().cpu()
+        sum_mse += mse.item()
+        
+    mean = sum_means / len(dl)
+    logvar = sum_logvars / len(dl)
+    mse = sum_mse / len(dl)
 
     return SimpleNamespace(mean=mean, logvar=logvar, mse=mse)
 
