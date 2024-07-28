@@ -20,7 +20,7 @@ from neural_decoder.transforms import (
     SoftsignTransform,
     TransposeTransform,
 )
-from text2brain.models.vae import VAE, ELBOLoss, GECOLoss
+from text2brain.models.vae import VAE, CondVAE, ELBOLoss, GECOLoss
 from text2brain.visualization import plot_brain_signal_animation
 from utils import set_seeds
 
@@ -109,7 +109,8 @@ def main(args: dict) -> None:
         transform=transform,
     )
 
-    model = VAE(latent_dim=args["latent_dim"], input_shape=args["input_shape"]).to(device)
+    # model = VAE(latent_dim=args["latent_dim"], input_shape=args["input_shape"]).to(device)
+    model = CondVAE(latent_dim=args["latent_dim"], input_shape=args["input_shape"], classes=phoneme_cls, device=device)
 
     optimizer = optim.Adam(model.parameters(), lr=args["lr"])
     if args["loss"] == "elbo":
@@ -132,11 +133,6 @@ def main(args: dict) -> None:
     all_kld = []
     all_epoch_loss = []
 
-    class_loss = {label: 0.0 for label in phoneme_cls}
-    class_mse = {label: 0.0 for label in phoneme_cls}
-    class_kld = {label: 0.0 for label in phoneme_cls}
-    class_counts = {label: 0 for label in phoneme_cls}
-
     plot_dir = (
         ROOT_DIR
         / "evaluation"
@@ -147,24 +143,25 @@ def main(args: dict) -> None:
 
     for epoch in range(n_epochs):
         model.train()
-        epoch_losses = 0.0
-        epoch_klds = 0.0
-        epoch_mses = 0.0
+        epoch_loss = 0.0
+        epoch_kld = 0.0
+        epoch_mse = 0.0
 
         for i, data in enumerate(train_dl):
             X, y, _, _ = data
             X = X.to(device)
+            y = y.to(device)
 
             optimizer.zero_grad()
-            X_recon, mu, logvar = model(X)
+            X_recon, mu, logvar = model(X, y)
 
             mse, kld = loss_fn(X_recon, X, mu, logvar)
             loss = mse + kld
             # loss = loss_fn(X_recon, X, mu, logvar)
             loss.backward()
-            epoch_losses += loss.item()
-            epoch_mses += mse.item()
-            epoch_klds += kld.item()
+            epoch_loss += loss.item()
+            epoch_mse += mse.item()
+            epoch_kld += kld.item()
             optimizer.step()
 
             # output training stats
