@@ -141,7 +141,7 @@ def main(args: dict) -> None:
         ROOT_DIR
         / "evaluation"
         / "vae"
-        / f"reconstructed_images_model_input_shape_{'_'.join(map(str, args['input_shape']))}__lr_{args['lr']}__loss_{args['loss']}__gaussiansmoothing_20_2.0__bs_{batch_size}__all_phoneme_classes_39"
+        / f"test_reconstructed_images_model_input_shape_{'_'.join(map(str, args['input_shape']))}__lr_{args['lr']}__loss_{args['loss']}__gaussiansmoothing_20_2.0__bs_{batch_size}__all_phoneme_classes_39"
     )
     plot_dir.mkdir(parents=True, exist_ok=True)
 
