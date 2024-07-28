@@ -3,7 +3,7 @@ import torch
 from scipy.signal import correlate2d
 from scipy.stats import multivariate_normal
 
-from text2brain.models.vae import VAE
+from text2brain.models.vae_interface import VAEBase
 
 
 def compute_correlation_matrix(data: np.ndarray) -> np.ndarray:
@@ -40,7 +40,7 @@ def compute_cross_correlation(arr1: np.ndarray, arr2: np.ndarray) -> np.ndarray:
     return cross_corr
 
 
-def compute_likelihood(mean: torch.Tensor, logvar: torch.Tensor, x: torch.Tensor, vae: VAE):
+def compute_likelihood(mean: torch.Tensor, logvar: torch.Tensor, x: torch.Tensor, vae: VAEBase):
     print(f"mean.size() = {mean.size()}")
     print(f"logvar.size() = {logvar.size()}")
     print(f"x.size() = {x.size()}")
