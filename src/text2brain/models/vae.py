@@ -335,6 +335,7 @@ class VAE(VAEBase):
 
 
 def logvar_to_std(logvar: torch.Tensor) -> torch.Tensor:
+    """Convert the logarithm of the variance (logvar) to the standard deviation. """
     return torch.exp(0.5 * logvar)
 
 
