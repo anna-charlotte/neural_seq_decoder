@@ -21,7 +21,8 @@ from neural_decoder.transforms import (
     SoftsignTransform,
     TransposeTransform,
 )
-from text2brain.models.vae import VAE, ELBOLoss, GECOLoss, compute_mean_logvar_mse
+from text2brain.models.loss import ELBOLoss, GECOLoss
+from text2brain.models.vae import VAE, compute_mean_logvar_mse
 from utils import set_seeds
 
 

@@ -20,7 +20,8 @@ from neural_decoder.transforms import (
     SoftsignTransform,
     TransposeTransform,
 )
-from text2brain.models.vae import VAE, CondVAE, ELBOLoss, GECOLoss
+from text2brain.models.loss import ELBOLoss, GECOLoss
+from text2brain.models.vae import VAE, CondVAE
 from text2brain.visualization import plot_brain_signal_animation
 from utils import set_seeds
 
@@ -109,15 +110,17 @@ def main(args: dict) -> None:
         transform=transform,
     )
 
-    # model = VAE(latent_dim=args["latent_dim"], input_shape=args["input_shape"]).to(device)
-    model = CondVAE(latent_dim=args["latent_dim"], input_shape=args["input_shape"], classes=phoneme_cls, device=device)
+    # model = VAE(latent_dim=args["latent_dim"], input_shape=args["input_shape"], device=device)
+    model = CondVAE(
+        latent_dim=args["latent_dim"], input_shape=args["input_shape"], classes=phoneme_cls, device=device
+    )
 
     optimizer = optim.Adam(model.parameters(), lr=args["lr"])
     if args["loss"] == "elbo":
-        loss_fn = ELBOLoss(reduction="sum")  # "none"
+        loss_fn = ELBOLoss(reduction="sum")
     elif args["loss"] == "geco":
-        loss_fn = GECOLoss(goal=0.2, step_size=1e-2, reduction="sum")
-        loss_fn.to(device)
+        loss_fn = GECOLoss(goal=30000, step_size=1e-2, reduction="sum", device=device)
+
     print(f"loss_fn.__class__.__name__ = {loss_fn.__class__.__name__}")
 
     n_epochs = args["n_epochs"]
@@ -136,8 +139,8 @@ def main(args: dict) -> None:
     plot_dir = (
         ROOT_DIR
         / "evaluation"
-        / "vae"
-        / f"test_reconstructed_images_model_input_shape_{'_'.join(map(str, args['input_shape']))}__lr_{args['lr']}__loss_{args['loss']}__gaussiansmoothing_20_2.0__bs_{batch_size}__all_phoneme_classes_39"
+        / "vae_conditional"
+        / f"reconstructed_images_model_input_shape_{'_'.join(map(str, args['input_shape']))}__lr_{args['lr']}__loss_{args['loss']}__gaussiansmoothing_20_2.0__bs_{batch_size}__all_phoneme_classes_39"
     )
     plot_dir.mkdir(parents=True, exist_ok=True)
 
