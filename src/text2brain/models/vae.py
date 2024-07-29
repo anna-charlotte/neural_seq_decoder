@@ -262,7 +262,7 @@ class CondVAE(VAEBase):
 
     def reparameterize(self, mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
         """Sampling using the reparametrization trick."""
-        std = torch.exp(0.5 * logvar)
+        std = logvar_to_std(logvar)
         eps = torch.randn_like(std)
         return mu + eps * std
 
@@ -313,7 +313,7 @@ class VAE(VAEBase):
 
     def reparameterize(self, mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
         """Sampling using the reparametrization trick."""
-        std = torch.exp(0.5 * logvar)
+        std = logvar_to_std(logvar)
         eps = torch.randn_like(std)
         return mu + eps * std
 
@@ -332,6 +332,10 @@ class VAE(VAEBase):
         model.load_state_dict(torch.load(weights_path))
 
         return model
+
+
+def logvar_to_std(logvar: torch.Tensor) -> torch.Tensor:
+    return torch.exp(0.5 * logvar)
 
 
 def compute_mean_logvar_mse(vae: VAEBase, dl: DataLoader) -> SimpleNamespace:
