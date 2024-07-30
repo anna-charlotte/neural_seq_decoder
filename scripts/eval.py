@@ -1,6 +1,6 @@
 import os
 import pickle
-from typing import Dict
+from typing import Dict, List
 
 import neuralDecoder.utils.lmDecoderUtils as lmDecoderUtils
 import numpy as np
@@ -87,6 +87,12 @@ def get_model_outputs(loaded_data: list[Dict], model, device: str) -> dict:
     model_outputs["logits"] = np.concatenate([logits[:, :, 1:], logits[:, :, :1]], axis=-1)
 
     return model_outputs
+
+
+def save_model_output_to_several_files(model: nn.Module, loaded_data_dicts: List[dict], device: str, out_files: List[str]) -> None:
+    assert len(loaded_data_dicts) == len(out_files)
+    for loaded_data, out_file in zip(loaded_data_dicts, out_files):
+        save_model_output(model, loaded_data, device, out_file)
 
 
 def save_model_output(model: nn.Module, loaded_data: dict, device: str, out_file: str) -> None:
@@ -230,11 +236,28 @@ if __name__ == "__main__":
     print(f"Model loaded.")
 
     if save_output:
-        file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
-        save_model_output(model=model, loaded_data=loaded_data["train"], device=device, out_file=file)
+        # save train predictions from RNN to train file
+        # file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
+        # save_model_output(model=model, loaded_data=loaded_data["train"], device=device, out_file=file)
 
-        file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
-        save_model_output(model=model, loaded_data=loaded_data["test"], device=device, out_file=file)
+        # save first have of test predictions as VAL SPLIT, second half as TEST HALF
+        out_file_test = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_test_TEST_SPLIT.pkl"
+        out_file_val = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_test_VAL_SPLIT.pkl"
+        test_dict = loaded_data["test"]
+        keys = sorted(test_dict.keys())
+        mid_index = len(keys) // 2
+
+        first_half_keys = keys[:mid_index]
+        second_half_keys = keys[mid_index:]
+
+        first_dict = {key: test_dict[key] for key in first_half_keys}
+        second_dict = {key: test_dict[key] for key in second_half_keys}
+        save_model_output_to_several_files(
+            model=model,
+            loaded_data_dicts=[first_dict, second_dict],
+            device=device,
+            out_files=[out_file_val, out_file_test],
+        )
 
     if eval_model:
         model_test_outputs = get_model_outputs(
