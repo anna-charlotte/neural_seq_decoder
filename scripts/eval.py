@@ -228,7 +228,7 @@ if __name__ == "__main__":
 
     _, _, loaded_data = get_dataset_loaders(args["datasetPath"], args["batchSize"])
 
-    device = "cuda"
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     model = loadModel(model_path, device=device)
     model.to(device)
@@ -241,8 +241,8 @@ if __name__ == "__main__":
         # save_model_output(model=model, loaded_data=loaded_data["train"], device=device, out_file=file)
 
         # save first have of test predictions as VAL SPLIT, second half as TEST HALF
-        out_file_test = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_test_TEST_SPLIT.pkl"
-        out_file_val = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_test_VAL_SPLIT.pkl"
+        out_file_test = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_TEST_SPLIT.pkl"
+        out_file_val = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_VAL_SPLIT.pkl"
         test_dict = loaded_data["test"]
         keys = sorted(test_dict.keys())
         mid_index = len(keys) // 2
