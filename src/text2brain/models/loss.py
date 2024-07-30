@@ -2,14 +2,18 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from collections import namedtuple
+
+LossResults = namedtuple('LossResults', ['mse', 'kld', 'loss'])
 
 def compute_kl_divergence(logvar, mu, reduction: str):
+    kl_div = -0.5 * (1 + logvar - mu.pow(2) - logvar.exp())
     if reduction == "sum":
-        return -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+        return torch.sum(kl_div) 
     elif reduction == "mean":
-        return -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+        return torch.mean(kl_div)
     elif reduction == "none":
-        return -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1)
+        return kl_div
     else:
         raise ValueError(f"Invalid reduction: {reduction}")
 
@@ -19,10 +23,11 @@ class ELBOLoss(nn.Module):
         super(ELBOLoss, self).__init__()
         self.reduction = reduction
 
-    def forward(self, reconstructed_x, x, mu, logvar):
+    def forward(self, reconstructed_x, x, mu, logvar) -> LossResults:
         mse = F.mse_loss(reconstructed_x, x, reduction=self.reduction)
         kld = compute_kl_divergence(logvar=logvar, mu=mu, reduction=self.reduction)
-        return mse, kld
+        loss = mse + kld
+        return LossResults(mse=mse, kld=kld, loss=loss)
 
 
 # implementation from: https://github.com/applied-ai-lab/genesis/blob/master/utils/geco.py
@@ -79,9 +84,9 @@ class GECOLoss(nn.Module):
 
         return loss
 
-    def forward(self, reconstructed_x, x, mu, logvar):
+    def forward(self, reconstructed_x, x, mu, logvar) -> LossResults:
         mse = F.mse_loss(reconstructed_x, x, reduction=self.reduction)
         kld = compute_kl_divergence(logvar=logvar, mu=mu, reduction=self.reduction)
         loss = self.compute_contrained_loss(err=mse, kld=kld)
 
-        return loss
+        return LossResults(mse=mse, kld=kld, loss=loss)
