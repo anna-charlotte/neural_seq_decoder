@@ -53,7 +53,7 @@ class GECOLoss(nn.Module):
         self.alpha = alpha
         self.beta = torch.tensor(beta_init)
         self.beta_min = torch.tensor(beta_min)
-        self.beta_max = torch.tensor()
+        self.beta_max = torch.tensor(beta_max)
         self.speedup = speedup
 
         self.to(device)
