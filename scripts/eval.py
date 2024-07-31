@@ -13,7 +13,7 @@ from tqdm import tqdm
 from data.dataset import SpeechDataset
 from neural_decoder.neural_decoder_trainer import get_dataset_loaders, loadModel
 from neural_decoder.phoneme_utils import assign_correctness_values
-
+from utils import load_args, load_pkl
 
 def cer(logits: torch.Tensor, X_len: torch.Tensor, y: torch.Tensor, y_len: torch.Tensor):
     total_edit_distance = 0
@@ -89,9 +89,7 @@ def get_model_outputs(loaded_data: list[Dict], model, device: str) -> dict:
     return model_outputs
 
 
-def save_model_output_to_several_files(
-    model: nn.Module, loaded_data_dicts: List[List[dict]], device: str, out_files: List[str]
-) -> None:
+def save_model_output_to_several_files(model: nn.Module, loaded_data_dicts: List[List[dict]], device: str, out_files: List[str]) -> None:
     assert len(loaded_data_dicts) == len(out_files)
     for loaded_data, out_file in zip(loaded_data_dicts, out_files):
         save_model_output(model, loaded_data, device, out_file)
@@ -222,9 +220,10 @@ if __name__ == "__main__":
     model_out_path = "/home/lina4471/willett2023/competitionData/rnn"
 
     # Load dataset and rnn model
-    with open(model_path + "/args", "rb") as handle:
-        print(f"Load args from: {model_path}/args")
-        args = pickle.load(handle)
+    # with open(model_path + "/args", "rb") as handle:
+        # args = pickle.load(handle)
+    print(f"Load args from: {model_path}/args")
+    args = load_args(model_path + "/args")
 
     args["datasetPath"] = datset_path
 
@@ -243,12 +242,8 @@ if __name__ == "__main__":
         # save_model_output(model=model, loaded_data=loaded_data["train"], device=device, out_file=file)
 
         # save first have of test predictions as VAL SPLIT, second half as TEST HALF
-        out_file_test = (
-            "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_TEST_SPLIT.pkl"
-        )
-        out_file_val = (
-            "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_VAL_SPLIT.pkl"
-        )
+        out_file_test = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_TEST_SPLIT.pkl"
+        out_file_val = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_VAL_SPLIT.pkl"
         test_data = loaded_data["test"]  # list of dicts
         print(f"len(test_data) = {len(test_data)}")
         print(f"type(test_data) = {type(test_data)}")
@@ -297,14 +292,16 @@ if __name__ == "__main__":
         input_info(model_holdOut_outputs)
 
         # load the rnn outputs pkl for the LM
-        with open(test_out_path, "rb") as handle:
-            model_test_outputs = pickle.load(handle)
+        # with open(test_out_path, "rb") as handle:
+            # model_test_outputs = pickle.load(handle)
+        model_test_outputs = load_pkl(test_out_path)
 
         print(test_out_path + " structure:", flush=True)
         input_info(model_test_outputs)
 
-        with open(holdout_out_path, "rb") as handle:
-            model_holdOut_outputs = pickle.load(handle)
+        # with open(holdout_out_path, "rb") as handle:
+            # model_holdOut_outputs = pickle.load(handle)
+        model_holdOut_outputs = load_pkl(holdout_out_path)
 
         print(holdout_out_path + " structure:", flush=True)
         input_info(model_holdOut_outputs)

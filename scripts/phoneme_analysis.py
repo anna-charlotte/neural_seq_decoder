@@ -99,7 +99,7 @@ def compute_distances(
     for sample_phoneme_cls, samples_ in samples.items():
         for sample_tensor in samples_:
             distances = []
-            for avg_phoneme_cls, avg_tensor in sorted(averaged.items()):
+            for _, avg_tensor in sorted(averaged.items()):
                 if distance_metric == "frobenius":
                     distance = torch.norm(sample_tensor - avg_tensor, p="fro")
                 elif distance_metric == "cosine_sim":
@@ -121,7 +121,7 @@ def compute_distances(
             # Rank the true class
             sorted_distances = sorted((dist, kls) for kls, dist in enumerate(distances))
             curr_rank = None
-            for rank, (dist, kls) in enumerate(sorted_distances):
+            for rank, (_, kls) in enumerate(sorted_distances):
                 if kls == sample_phoneme_cls:
                     curr_rank = rank
                     break
@@ -305,7 +305,7 @@ def main(args: dict) -> None:
     #     train_file = args["train_set_path"]
     #     # with open(train_file, "rb") as handle:
     #     #     train_data = pickle.load(handle)
-    #     train_data - load_pkl(train_file)
+    #     train_data = load_pkl(train_file)
 
     #     filter_by = {}
     #     if isinstance(phoneme_cls, int):

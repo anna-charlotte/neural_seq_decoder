@@ -23,7 +23,7 @@ from neural_decoder.transforms import (
 )
 from text2brain.models.loss import ELBOLoss, GECOLoss
 from text2brain.models.vae import VAE, compute_mean_logvar_mse
-from utils import set_seeds
+from utils import load_args, set_seeds
 
 
 def plot_means_and_stds(means: np.ndarray, stds: np.ndarray, phoneme: str):
@@ -84,8 +84,9 @@ def main() -> None:
     weights_file = model_dir / "modelWeights_epoch_399"
     args_file = model_dir / "args"
 
-    with open(args_file, "rb") as file:
-        args = pickle.load(file)
+    # with open(args_file, "rb") as file:
+        # args = pickle.load(file)
+    args = load_args(args_file)
 
     if "phoneme_cls" not in args.keys():
         args["phoneme_cls"] = list(range(1, 40))
@@ -103,8 +104,9 @@ def main() -> None:
     # load vae from args and state dict
     vae = VAE.load_model(args_file, weights_file)
 
-    with open(args["train_set_path"], "rb") as handle:
-        train_data = pickle.load(handle)
+    # with open(args["train_set_path"], "rb") as handle:
+    #     train_data = pickle.load(handle)
+    train_data = load_pkl(args["train_set_path"])
 
     transform = None
     if args["transform"] == "softsign":

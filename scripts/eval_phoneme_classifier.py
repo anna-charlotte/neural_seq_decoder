@@ -27,7 +27,7 @@ from neural_decoder.neural_decoder_trainer import get_data_loader
 from neural_decoder.phoneme_utils import PHONE_DEF, ROOT_DIR
 from text2brain.models.phoneme_image_gan import _get_indices_in_classes
 from text2brain.visualization import plot_accuracies, plot_metric_of_multiple_models
-from utils import set_seeds
+from utils import load_pkl, set_seeds
 
 
 def main() -> None:
@@ -55,8 +55,9 @@ def main() -> None:
 
         args_file = model_dir / "args"
         print(f"args_file = {args_file}")
-        with open(args_file, "rb") as file:
-            args = pickle.load(file)
+        # with open(args_file, "rb") as file:
+            # args = pickle.load(file)
+        args = load_pkl(args_file)
 
         for k, v in args.items():
             print(f"{k}: {v}")
@@ -71,8 +72,9 @@ def main() -> None:
         )
 
         test_data_file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
-        with open(test_data_file, "rb") as handle:
-            data = pickle.load(handle)
+        # with open(test_data_file, "rb") as handle:
+            # data = pickle.load(handle)
+        data = load_pkl(test_data_file)
 
         test_dl = get_data_loader(
             data=data,

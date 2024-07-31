@@ -33,6 +33,7 @@ from neural_decoder.transforms import (
     TransposeTransform,
 )
 from text2brain.visualization import plot_neural_window
+from utils import load_pkl
 
 
 def compute_distances(
@@ -86,8 +87,9 @@ def compute_distances(
 
 def extract_samples_for_each_label(train_file: Path, n_samples: int, classes: list, transform=None):
     print(f"Extract {n_samples} samples for each class ...")
-    with open(train_file, "rb") as handle:
-        train_data = pickle.load(handle)
+    # with open(train_file, "rb") as handle:
+    #     train_data = pickle.load(handle)
+    train_data = load_pkl(train_file)
 
     train_dl = get_data_loader(
         data=train_data,

@@ -27,6 +27,6 @@ def load_args(args_path: Path) -> dict:
 def load_pkl(pkl_path: Path):
     assert str(pkl_path).endswith(".pkl")
 
-    with open(file, "rb") as handle:
+    with open(pkl_path, "rb") as handle:
         data = pickle.load(handle)
     return data
