@@ -89,13 +89,15 @@ def get_model_outputs(loaded_data: list[Dict], model, device: str) -> dict:
     return model_outputs
 
 
-def save_model_output_to_several_files(model: nn.Module, loaded_data_dicts: List[dict], device: str, out_files: List[str]) -> None:
+def save_model_output_to_several_files(
+    model: nn.Module, loaded_data_dicts: List[List[dict]], device: str, out_files: List[str]
+) -> None:
     assert len(loaded_data_dicts) == len(out_files)
     for loaded_data, out_file in zip(loaded_data_dicts, out_files):
         save_model_output(model, loaded_data, device, out_file)
 
 
-def save_model_output(model: nn.Module, loaded_data: dict, device: str, out_file: str) -> None:
+def save_model_output(model: nn.Module, loaded_data: List[dict], device: str, out_file: str) -> None:
     days = range(len(loaded_data))
     data = [
         {
@@ -241,20 +243,26 @@ if __name__ == "__main__":
         # save_model_output(model=model, loaded_data=loaded_data["train"], device=device, out_file=file)
 
         # save first have of test predictions as VAL SPLIT, second half as TEST HALF
-        out_file_test = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_TEST_SPLIT.pkl"
-        out_file_val = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_VAL_SPLIT.pkl"
-        test_dict = loaded_data["test"]
-        keys = sorted(test_dict.keys())
-        mid_index = len(keys) // 2
+        out_file_test = (
+            "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_TEST_SPLIT.pkl"
+        )
+        out_file_val = (
+            "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_VAL_SPLIT.pkl"
+        )
+        test_data = loaded_data["test"]  # list of dicts
+        print(f"len(test_data) = {len(test_data)}")
+        print(f"type(test_data) = {type(test_data)}")
+        for x in test_data:
+            print(f"type(x) = {type(x)}")
 
-        first_half_keys = keys[:mid_index]
-        second_half_keys = keys[mid_index:]
+        mid_index = len(test_data) // 2
 
-        first_dict = {key: test_dict[key] for key in first_half_keys}
-        second_dict = {key: test_dict[key] for key in second_half_keys}
+        first_half = test_data[:mid_index]
+        second_half = test_data[mid_index:]
+
         save_model_output_to_several_files(
             model=model,
-            loaded_data_dicts=[first_dict, second_dict],
+            loaded_data_dicts=[first_half, second_half],
             device=device,
             out_files=[out_file_val, out_file_test],
         )
