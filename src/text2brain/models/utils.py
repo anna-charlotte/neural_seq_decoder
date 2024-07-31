@@ -2,6 +2,7 @@ import pickle
 from pathlib import Path
 
 from text2brain.models.rnn import TextToBrainGRU
+from utils import load_args
 
 
 def load_text2brain_model(model_dir: Path):
@@ -11,8 +12,9 @@ def load_text2brain_model(model_dir: Path):
     assert args_file.exists()
     assert weights_file.exists()
 
-    with open(args_file, "rb") as handle:
-        args = pickle.load(handle)
+    # with open(args_file, "rb") as handle:
+    #     args = pickle.load(handle)
+    args = load_args(args_file)
 
     if args["model_class"] == TextToBrainGRU.__name__:
         model = TextToBrainGRU(

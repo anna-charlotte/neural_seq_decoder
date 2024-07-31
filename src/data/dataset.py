@@ -9,6 +9,7 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset
 
 from neural_decoder.phoneme_utils import PHONE_DEF_SIL
+from utils import load_pkl
 
 
 def _padding(batch: tuple) -> tuple:
@@ -225,8 +226,9 @@ def save_averaged_windows_for_all_classes(train_file: Path, reorder_channels: bo
     for phoneme_cls in phoneme_classes:
         print(f"\nphoneme_cls = {phoneme_cls}")
 
-        with open(train_file, "rb") as handle:
-            train_data = pickle.load(handle)
+        # with open(train_file, "rb") as handle:
+        # train_data = pickle.load(handle)
+        train_data = load_pkl(train_file)
 
         filter_by = {}
         if isinstance(phoneme_cls, int):

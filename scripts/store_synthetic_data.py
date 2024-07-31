@@ -5,6 +5,7 @@ from data.dataset import _padding
 from neural_decoder.neural_decoder_trainer import get_data_loader, get_dataset_loaders
 from text2brain.models.utils import load_text2brain_model
 from text2brain.synthetic_data import save_synthetic_data
+from utils import load_pkl
 
 if __name__ == "__main__":
     root_dir = Path("/data/engs-pnpl/lina4471/synthetic_data_willett2023/simple_rnn")
@@ -36,8 +37,9 @@ if __name__ == "__main__":
     file = root_dir / "synthetic_data" / "pytorchTFRecords_synthetic.pkl"
     # load dat again
     print(f"\nLoad stored generated data from: {file}")
-    with open(file, "rb") as handle:
-        loaded_data = pickle.load(handle)
+    # with open(file, "rb") as handle:
+    #     loaded_data = pickle.load(handle)
+    loaded_data = load_pkl(file)
 
     train_dl = get_data_loader(
         data=loaded_data,

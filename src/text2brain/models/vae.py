@@ -9,7 +9,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
+from text2brain.models.model_interface import T2BGenInterface
 from text2brain.models.vae_interface import VAEBase
+from utils import load_args
 
 TypeCondVAE = TypeVar("TypeCondVAE", bound="CondVAE")
 TypeVAE = TypeVar("TypeVAE", bound="VAE")
@@ -233,7 +235,7 @@ class Decoder_128_8_8(nn.Module):
         return h
 
 
-class CondVAE(VAEBase):
+class CondVAE(VAEBase, T2BGenInterface):
     def __init__(
         self, latent_dim: int, input_shape: Tuple[int, int, int], classes: list, device: str = "cpu"
     ):
@@ -274,8 +276,9 @@ class CondVAE(VAEBase):
 
     @classmethod
     def load_model(cls, args_path: Path, weights_path: Path) -> TypeCondVAE:
-        with open(args_path, "rb") as file:
-            args = pickle.load(file)
+        # with open(args_path, "rb") as file:
+        #     args = pickle.load(file)
+        args = load_args(args_path)
 
         model = cls(latent_dim=args["latent_dim"], input_shape=args["input_shape"], device=args["device"])
         model.load_state_dict(torch.load(weights_path))
@@ -287,7 +290,7 @@ class CondVAE(VAEBase):
         return self.decoder(z, y)
 
 
-class VAE(VAEBase):
+class VAE(VAEBase, T2BGenInterface):
     def __init__(self, latent_dim: int, input_shape: Tuple[int, int, int], device: str = "cpu"):
         super(VAE, self).__init__(latent_dim, input_shape, [], device)
 
@@ -325,8 +328,9 @@ class VAE(VAEBase):
 
     @classmethod
     def load_model(cls, args_path: Path, weights_path: Path) -> TypeVAE:
-        with open(args_path, "rb") as file:
-            args = pickle.load(file)
+        # with open(args_path, "rb") as file:
+        #     args = pickle.load(file)
+        args = load_args(args_path)
 
         model = cls(latent_dim=args["latent_dim"], input_shape=args["input_shape"], device=args["device"])
         model.load_state_dict(torch.load(weights_path))
@@ -335,7 +339,7 @@ class VAE(VAEBase):
 
 
 def logvar_to_std(logvar: torch.Tensor) -> torch.Tensor:
-    """Convert the logarithm of the variance (logvar) to the standard deviation. """
+    """Convert the logarithm of the variance (logvar) to the standard deviation."""
     return torch.exp(0.5 * logvar)
 
 

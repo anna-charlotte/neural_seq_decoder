@@ -29,9 +29,10 @@ from neural_decoder.neural_decoder_trainer import get_data_loader
 from neural_decoder.phoneme_utils import PHONE_DEF, ROOT_DIR
 from neural_decoder.transforms import SoftsignTransform
 from text2brain.models import PhonemeImageGAN
+from text2brain.models.model_interface_load import load_t2b_gen_model
 from text2brain.models.phoneme_image_gan import _get_indices_in_classes
 from text2brain.visualization import plot_phoneme_distribution
-from utils import set_seeds
+from utils import load_pkl, set_seeds
 
 
 def get_label_distribution(dataset):
@@ -58,8 +59,9 @@ def main(args: dict) -> None:
     device = args["device"]
 
     train_file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
-    with open(train_file, "rb") as handle:
-        data_train = pickle.load(handle)
+    # with open(train_file, "rb") as handle:
+    #     data_train = pickle.load(handle)
+    data_train = load_pkl(train_file)
 
     # fmt: off
     class_counts = [
@@ -69,11 +71,13 @@ def main(args: dict) -> None:
         23188, 2083, 1688, 8414, 6566, 6633, 3707, 7403, 7807
     ]  
     # fmt: on
-    plot_phoneme_distribution(
-        class_counts,
-        ROOT_DIR / "plots" / "phoneme_distribution_training_set_correctly_classified_by_RNN.png",
-        "Phoneme Distribution in Training Set",
-    )
+
+    # # plot phoneme distribution
+    # plot_phoneme_distribution(
+    #     class_counts,
+    #     ROOT_DIR / "plots" / "phoneme_distribution_training_set_correctly_classified_by_RNN.png",
+    #     f"Phoneme Distribution in Training Set ({sum(class_counts)} samples)",
+    # )
 
     # Calculate weights for each class
     if args["class_weights"] == "sqrt":
@@ -94,6 +98,7 @@ def main(args: dict) -> None:
         transform = SoftsignTransform()
     print(f"transform = {transform.__class__.__name__}")
 
+    # load train dataloader
     train_dl_real = get_data_loader(
         data=data_train,
         batch_size=batch_size,
@@ -106,12 +111,14 @@ def main(args: dict) -> None:
     )
     labels_train = get_label_distribution(train_dl_real.dataset)
 
-    test_file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
-    with open(test_file, "rb") as handle:
-        data = pickle.load(handle)
+    # load val dataloader
+    val_file = args["val_set_path"]
+    # with open(val_file, "rb") as handle:
+    #     val_data = pickle.load(handle)
+    val_data = load_pkl(val_file)
 
-    test_dl = get_data_loader(
-        data=data,
+    val_dl = get_data_loader(
+        data=val_data,
         batch_size=1,
         shuffle=False,
         collate_fn=None,
@@ -120,13 +127,37 @@ def main(args: dict) -> None:
         class_weights=None,
         transform=transform,
     )
-    labels_test = get_label_distribution(test_dl.dataset)
-    class_counts_test = [labels_test[i] for i in range(1, 40)]
-    plot_phoneme_distribution(
-        class_counts_test,
-        ROOT_DIR / "plots" / "phoneme_distribution_test_set_correctly_classified_by_RNN.png",
-        "Phoneme Distribution in Test Set",
+    # labels_val = get_label_distribution(val_dl.dataset)
+    # class_counts_val = [labels_val[i] for i in range(1, 40)]
+    # plot_phoneme_distribution(
+    #     class_counts_val,
+    #     ROOT_DIR / "plots" / "phoneme_distribution_test_set_VAL_SPLIT_correctly_classified_by_RNN.png",
+    #     f"Phoneme Distribution in Validation Set ({len(val_dl.dataset)} samples)",
+    # )
+
+    # load test dataloader
+    test_file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
+    # with open(test_file, "rb") as handle:
+    #     test_data = pickle.load(handle)
+    test_data = load_pkl(test_file)
+
+    test_dl = get_data_loader(
+        data=test_data,
+        batch_size=1,
+        shuffle=False,
+        collate_fn=None,
+        dataset_cls=PhonemeDataset,
+        phoneme_ds_filter=phoneme_ds_filter,
+        class_weights=None,
+        transform=transform,
     )
+    # labels_test = get_label_distribution(test_dl.dataset)
+    # class_counts_test = [labels_test[i] for i in range(1, 40)]
+    # plot_phoneme_distribution(
+    #     class_counts_test,
+    #     ROOT_DIR / "plots" / "phoneme_distribution_test_set_TEST_SPLIT_correctly_classified_by_RNN.png",
+    #     f"Phoneme Distribution in Test Set ({len(test_dl.dataset)} samples)",
+    # )
 
     if (
         "generative_model_args_path" in args.keys()
@@ -135,10 +166,11 @@ def main(args: dict) -> None:
     ):
         print("Use real and synthetic data ...")
 
-        gen_model = PhonemeImageGAN.load_model(
+        gen_model = load_t2b_gen_model(
             args_path=args["generative_model_args_path"],
             weights_path=args["generative_model_weights_path"],
         )
+        print(f"gen_model.__class__.__name__ = {gen_model.__class__.__name__}")
 
         synthetic_ds = gen_model.create_synthetic_phoneme_dataset(
             n_samples=args["generative_model_n_samples"],
@@ -196,7 +228,10 @@ if __name__ == "__main__":
     args["device"] = "cuda" if torch.cuda.is_available() else "cpu"
     data_dir = Path("/data/engs-pnpl/lina4471/willett2023/competitionData")
     args["train_set_path"] = str(data_dir / "rnn_train_set_with_logits.pkl")
-    args["test_set_path"] = str(data_dir / "rnn_test_set_with_logits.pkl")
+    args["val_set_path"] = str(data_dir / "rnn_test_set_with_logits_VAL_SPLIT.pkl")
+    args["test_set_path"] = str(data_dir / "rnn_test_set_with_logits_TEST_SPLIT.pkl")
+
+    # args["test_set_path"] = str(data_dir / "rnn_test_set_with_logits.pkl")
     args["n_epochs"] = 10
 
     for lr in [1e-4]:

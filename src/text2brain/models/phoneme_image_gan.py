@@ -11,6 +11,8 @@ import torch.utils.data
 from tqdm import tqdm
 
 from data.dataset import SyntheticPhonemeDataset
+from text2brain.models.model_interface import T2BGenInterface
+from utils import load_args
 
 
 def phonemes_to_signal(model, phonemes: list, signal_shape: Tuple[int, ...] = (32, 16, 16)) -> torch.Tensor:
@@ -31,7 +33,7 @@ def phonemes_to_signal(model, phonemes: list, signal_shape: Tuple[int, ...] = (3
     return torch.cat(signal, dim=1)
 
 
-class PhonemeImageGAN(nn.Module):
+class PhonemeImageGAN(T2BGenInterface):
     def __init__(
         self,
         latent_dim: int,
@@ -149,8 +151,9 @@ class PhonemeImageGAN(nn.Module):
 
     @classmethod
     def load_model(cls, args_path: Path, weights_path: Path):
-        with open(args_path, "rb") as file:
-            args = pickle.load(file)
+        # with open(args_path, "rb") as file:
+        #     args = pickle.load(file)
+        args = load_args(args_path)
 
         print(f"\nargs = {args}")
         phoneme_cls = args["phoneme_cls"]

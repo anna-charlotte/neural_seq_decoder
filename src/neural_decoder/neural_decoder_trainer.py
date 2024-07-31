@@ -14,6 +14,7 @@ from torch.utils.data import DataLoader, WeightedRandomSampler
 from data.dataloader import MergedDataLoader
 from data.dataset import PhonemeDataset, SpeechDataset, _padding
 from neural_decoder.model import GRUDecoder
+from utils import load_args, load_pkl
 
 
 def get_data_loader(
@@ -63,8 +64,9 @@ def get_dataset_loaders(
     dataset_name: str, batch_size: int, dataset_cls: Type[Any] = SpeechDataset, phoneme_ds_filter: dict = {}
 ) -> Tuple[DataLoader, DataLoader, dict]:
     print("In get_dataset_loaders()")
-    with open(dataset_name, "rb") as handle:
-        loaded_data = pickle.load(handle)
+    # with open(dataset_name, "rb") as handle:
+    #     loaded_data = pickle.load(handle)
+    loaded_data = load_pkl(dataset_name)
 
     padding_fnc = None
     if dataset_cls == SpeechDataset:
@@ -112,8 +114,9 @@ def trainModel(args):
     )
     if "datasetPathSynthetic" in args.keys() and args["datasetPathSynthetic"] != "":
         dataset_name = args["datasetPathSynthetic"]
-        with open(dataset_name, "rb") as handle:
-            data = pickle.load(handle)
+        # with open(dataset_name, "rb") as handle:
+        #     data = pickle.load(handle)
+        data = load_pkl(dataset_name)
 
         synthetic_loader = get_data_loader(
             data=data,
@@ -269,8 +272,9 @@ def trainModel(args):
 
 def loadModel(modelDir, nInputLayers=24, device="cuda"):
     modelWeightPath = modelDir + "/modelWeights"
-    with open(modelDir + "/args", "rb") as handle:
-        args = pickle.load(handle)
+    # with open(modelDir + "/args", "rb") as handle:
+    #     args = pickle.load(handle)
+    args = load_args(modelDir + "/args")
 
     model = GRUDecoder(
         neural_dim=args["nInputFeatures"],

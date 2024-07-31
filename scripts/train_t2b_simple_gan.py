@@ -12,7 +12,7 @@ from neural_decoder.phoneme_utils import ROOT_DIR
 from neural_decoder.transforms import SoftsignTransform
 from text2brain.models.phoneme_image_gan import PhonemeImageGAN
 from text2brain.visualization import plot_brain_signal_animation
-from utils import set_seeds
+from utils import load_pkl, set_seeds
 
 
 def main(args: dict) -> None:
@@ -28,8 +28,9 @@ def main(args: dict) -> None:
     args["phoneme_cls"] = phoneme_cls
 
     train_file = args["train_set_path"]
-    with open(train_file, "rb") as handle:
-        train_data = pickle.load(handle)
+    # with open(train_file, "rb") as handle:
+    #     train_data = pickle.load(handle)
+    train_data = load_pkl(train_file)
 
     transform = None
     if args["transform"] == "softsign":
@@ -53,8 +54,9 @@ def main(args: dict) -> None:
     print(f"len(train_dl.dataset) = {len(train_dl.dataset)}")
 
     test_file = args["test_set_path"]
-    with open(test_file, "rb") as handle:
-        test_data = pickle.load(handle)
+    # with open(test_file, "rb") as handle:
+    #     test_data = pickle.load(handle)
+    test_data = load_pkl(test_file)
 
     test_dl = get_data_loader(
         data=test_data,
@@ -77,6 +79,7 @@ def main(args: dict) -> None:
         clip_value=args["clip_value"],
         lr=args["lr"],
     )
+    args["model_class"] == gan.__class__.__name__
 
     # load or compute the average images
     print(f"out_dir = {out_dir}")

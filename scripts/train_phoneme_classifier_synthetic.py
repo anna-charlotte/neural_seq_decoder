@@ -22,9 +22,9 @@ from neural_decoder.model_phoneme_classifier import (
 from neural_decoder.neural_decoder_trainer import get_data_loader
 from neural_decoder.phoneme_utils import PHONE_DEF, ROOT_DIR
 from neural_decoder.transforms import SoftsignTransform
-from text2brain.models import PhonemeImageGAN
+from text2brain.models.model_interface_load import load_t2b_gen_model
 from text2brain.models.phoneme_image_gan import _get_indices_in_classes
-from utils import set_seeds
+from utils import load_pkl, set_seeds
 
 
 def get_label_distribution(dataset):
@@ -59,7 +59,7 @@ def main(args: dict) -> None:
         transform = SoftsignTransform()
     print(f"transform = {transform.__class__.__name__}")
 
-    gen_model = PhonemeImageGAN.load_model(
+    gen_model = load_t2b_gen_model(
         args_path=args["generative_model_args_path"],
         weights_path=args["generative_model_weights_path"],
     )
@@ -94,8 +94,9 @@ def main(args: dict) -> None:
 
     # real test set
     test_file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
-    with open(test_file, "rb") as handle:
-        test_data = pickle.load(handle)
+    # with open(test_file, "rb") as handle:
+    # test_data = pickle.load(handle)
+    test_data = load_pkl(test_file)
 
     test_dl_real = get_data_loader(
         data=test_data,
@@ -144,7 +145,8 @@ if __name__ == "__main__":
     args["device"] = "cuda" if torch.cuda.is_available() else "cpu"
     data_dir = Path("/data/engs-pnpl/lina4471/willett2023/competitionData")
     args["train_set_path"] = str(data_dir / "rnn_train_set_with_logits.pkl")
-    args["test_set_path"] = str(data_dir / "rnn_test_set_with_logits.pkl")
+    args["val_set_path"] = str(data_dir / "rnn_test_set_with_logits_VAL_SPLIT.pkl")
+    args["test_set_path"] = str(data_dir / "rnn_test_set_with_logits_TEST_SPLIT.pkl")
     args["n_epochs"] = 10
 
     for lr in [1e-4]:
