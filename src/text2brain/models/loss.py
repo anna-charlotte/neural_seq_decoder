@@ -1,15 +1,16 @@
+from collections import namedtuple
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from collections import namedtuple
+LossResults = namedtuple("LossResults", ["mse", "kld", "loss"])
 
-LossResults = namedtuple('LossResults', ['mse', 'kld', 'loss'])
 
 def compute_kl_divergence(logvar, mu, reduction: str):
     kl_div = -0.5 * (1 + logvar - mu.pow(2) - logvar.exp())
     if reduction == "sum":
-        return torch.sum(kl_div) 
+        return torch.sum(kl_div)
     elif reduction == "mean":
         return torch.mean(kl_div)
     elif reduction == "none":
@@ -34,13 +35,14 @@ class ELBOLoss(nn.Module):
 class GECOLoss(nn.Module):
     def __init__(
         self,
-        goal,
-        step_size,
+        goal: float,
+        step_size: float,
         reduction: str,
         device: str,
-        alpha=0.99,
-        beta_init=1.0,
-        beta_min=1e-10,
+        alpha: float = 0.99,
+        beta_init: float = 1.0,
+        beta_min: float = 1e-10,
+        beta_max: float = 1e10,
         speedup=None,
     ):
         super(GECOLoss, self).__init__()
@@ -51,7 +53,7 @@ class GECOLoss(nn.Module):
         self.alpha = alpha
         self.beta = torch.tensor(beta_init)
         self.beta_min = torch.tensor(beta_min)
-        self.beta_max = torch.tensor(1e10)
+        self.beta_max = torch.tensor()
         self.speedup = speedup
 
         self.to(device)
