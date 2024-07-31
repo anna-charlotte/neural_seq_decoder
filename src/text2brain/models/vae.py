@@ -288,6 +288,10 @@ class CondVAE(VAEBase, T2BGenInterface):
     def sample(self, y: torch.Tensor) -> torch.Tensor:
         z = torch.randn(y.size(0), self.latent_dim)
         return self.decoder(z, y)
+    
+    def create_synthetic_phoneme_dataset(self, n_samples, neural_window_shape: Tuple[int, int, int]):
+        raise NotImplementedError
+
 
 
 class VAE(VAEBase, T2BGenInterface):
@@ -336,6 +340,10 @@ class VAE(VAEBase, T2BGenInterface):
         model.load_state_dict(torch.load(weights_path))
 
         return model
+
+    def create_synthetic_phoneme_dataset(self, n_samples, neural_window_shape: Tuple[int, int, int]):
+        raise NotImplementedError
+
 
 
 def logvar_to_std(logvar: torch.Tensor) -> torch.Tensor:
