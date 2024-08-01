@@ -22,8 +22,8 @@ from neural_decoder.transforms import (
     TransposeTransform,
 )
 from text2brain.models.loss import ELBOLoss, GECOLoss
-from text2brain.models.vae import VAE, CondVAE
-from text2brain.visualization import plot_brain_signal_animation
+from text2brain.models.vae import VAE, CondVAE, logvar_to_std
+from text2brain.visualization import plot_brain_signal_animation, plot_means_and_stds
 from utils import load_pkl, set_seeds
 
 
@@ -202,9 +202,9 @@ def main(args: dict) -> None:
 
     # model = VAE(latent_dim=args["latent_dim"], input_shape=args["input_shape"], device=device)
     model = CondVAE(
-        latent_dim=args["latent_dim"], input_shape=args["input_shape"], classes=phoneme_cls, device=device
+        latent_dim=args["latent_dim"], input_shape=args["input_shape"], classes=phoneme_cls, device=device, dec_emb_dim=args["dec_emb_dim"]
     )
-    args["model_class"] == model.__class__.__name__
+    args["model_class"] = model.__class__.__name__
 
     optimizer = optim.Adam(model.parameters(), lr=args["lr"])
     if args["loss"] == "elbo":
@@ -214,6 +214,7 @@ def main(args: dict) -> None:
             goal=args["geco_goal"],
             step_size=args["geco_step_size"],
             beta_init=args["geco_beta_init"],
+            beta_max=args["geco_beta_max"],
             reduction=args["loss_reduction"],
             device=device,
         )
@@ -231,8 +232,8 @@ def main(args: dict) -> None:
         ROOT_DIR
         / "evaluation"
         / "vae_conditional"
-        / "run_20240731_0_phoneme_3_31"
-        / f"reconstructed_images_model_input_shape_{'_'.join(map(str, args['input_shape']))}__loss_{args['loss']}_{args['geco_goal']}_{args['geco_step_size']}_{args['geco_beta_init']}__lr_{args['lr']}__gs_{args['gaussian_smoothing_kernel_size']}_{args['gaussian_smoothing_sigma']}__bs_{batch_size}__latent_dim_{args['latent_dim']}__phoneme_cls_{'_'.join(map(str, phoneme_cls))}"
+        / "run_20240801_1_phoneme_3_31"
+        / f"reconstructed_images_model_input_shape_{'_'.join(map(str, args['input_shape']))}__dec_emb_dim_{args['dec_emb_dim']}__latent_dim_{args['latent_dim']}__loss_{args['loss']}_{args['geco_goal']}_{args['geco_step_size']}_{args['geco_beta_init']}_{args['geco_beta_max']}__lr_{args['lr']}__gs_{args['gaussian_smoothing_kernel_size']}_{args['gaussian_smoothing_sigma']}__bs_{batch_size}__phoneme_cls_{'_'.join(map(str, phoneme_cls))}"
     )
     plot_dir.mkdir(parents=True, exist_ok=True)
     print(f"plot_dir = {plot_dir}")
@@ -255,6 +256,8 @@ def main(args: dict) -> None:
 
     for epoch in range(n_epochs):
         epoch_train_loss, epoch_train_mse, epoch_train_kld = 0.0, 0.0, 0.0
+        all_mu = []
+        all_std = []
 
         model.train()
         for i, data in enumerate(train_dl):
@@ -262,6 +265,10 @@ def main(args: dict) -> None:
 
             optimizer.zero_grad()
             X_recon, mu, logvar = model(X, y)
+            if epoch % 10 == 0:
+                all_mu.append(mu.detach().cpu().numpy())
+                std = logvar_to_std(logvar.detach().cpu())
+                all_std.append(std.numpy())
 
             results = loss_fn(X_recon, X, mu, logvar)
             results.loss.backward()
@@ -291,6 +298,17 @@ def main(args: dict) -> None:
         all_epoch_loss["train"].append(epoch_train_loss / n_batches_train)
         all_mse["train"].append(epoch_train_mse / n_batches_train)
         all_kld["train"].append(epoch_train_kld / n_batches_train)
+
+        # compute the mean and logvar
+        if epoch % 10 == 0:
+            mean_mu = np.mean(np.concatenate(all_mu, axis=0), axis=0)
+            mean_std = np.mean(np.concatenate(all_std, axis=0), axis=0)
+            print(f"mean_mu.shape = {mean_mu.shape}")
+            print(f"mean_std.shape = {mean_std.shape}")
+            assert mean_mu.shape == (args["latent_dim"],)
+            assert mean_std.shape == (args["latent_dim"],)
+
+            plot_means_and_stds(means=mean_mu, stds=mean_std, phoneme=f"3_31__epoch_{epoch}", out_dir=plot_dir)
 
         # validate on val set at end of epoch
         epoch_val_loss, epoch_val_mse, epoch_val_kld = 0.0, 0.0, 0.0
@@ -396,48 +414,52 @@ if __name__ == "__main__":
         for loss in ["geco"]:  # ["elbo", "geco"]:
             for lr in [1e-4]:  # [1e-3, 1e-4, 1e-5]:
                 for latent_dim in [256]:  # , 128, 100]:
-                    for geco_goal in [0.04]:  # , 0.037]:
+                    for geco_goal in [0.045]:  # , 0.037]:
                         for geco_step_size in [1e-2]:  # , 1e-3, 1e-4]:
                             for geco_beta_init in [1e-3]:  # , 1e-5, 1e-7]:
+                                for dec_emb_dim in [32]:
+                                    for geco_beta_max in [1e-3, 2e-3, 3e-3, 4e-4, 1e-4]:
 
-                                now = datetime.now()
-                                timestamp = now.strftime("%Y%m%d_%H%M%S")
+                                        now = datetime.now()
+                                        timestamp = now.strftime("%Y%m%d_%H%M%S")
 
-                                args = {}
-                                args["seed"] = 0
-                                args["device"] = "cuda"
-                                args["batch_size"] = 64
-                                args["phoneme_cls"] = [3, 31]  # list(range(1, 40))
+                                        args = {}
+                                        args["seed"] = 0
+                                        args["device"] = "cuda"
+                                        args["batch_size"] = 64
+                                        args["phoneme_cls"] = [3, 31]  # list(range(1, 40))
+                                        args["dec_emb_dim"] = dec_emb_dim
 
-                                args["loss"] = loss
-                                args["loss_reduction"] = "mean"
-                                if loss == "geco":
-                                    args["geco_goal"] = geco_goal
-                                    args["geco_beta_init"] = geco_beta_init
-                                    args["geco_step_size"] = geco_step_size
+                                        args["loss"] = loss
+                                        args["loss_reduction"] = "mean"
+                                        if loss == "geco":
+                                            args["geco_goal"] = geco_goal
+                                            args["geco_beta_init"] = geco_beta_init
+                                            args["geco_step_size"] = geco_step_size
+                                            args["geco_beta_max"] = geco_beta_max
 
-                                # args["input_dim"] = 100
-                                args["latent_dim"] = latent_dim
-                                args["input_shape"] = input_shape
+                                        # args["input_dim"] = 100
+                                        args["latent_dim"] = latent_dim
+                                        args["input_shape"] = input_shape
 
-                                args["n_epochs"] = 200
-                                args["lr"] = lr
+                                        args["n_epochs"] = 100
+                                        args["lr"] = lr
 
-                                args["transform"] = "softsign"
-                                args["gaussian_smoothing_kernel_size"] = 20
-                                args["gaussian_smoothing_sigma"] = 2.0
+                                        args["transform"] = "softsign"
+                                        args["gaussian_smoothing_kernel_size"] = 20
+                                        args["gaussian_smoothing_sigma"] = 2.0
 
-                                args["train_set_path"] = (
-                                    "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
-                                )
-                                args["val_set_path"] = (
-                                    "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_VAL_SPLIT.pkl"
-                                )
-                                args["test_set_path"] = (
-                                    "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_TEST_SPLIT.pkl"
-                                )
-                                args["output_dir"] = (
-                                    f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_unconditional_{timestamp}"
-                                )
+                                        args["train_set_path"] = (
+                                            "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
+                                        )
+                                        args["val_set_path"] = (
+                                            "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_VAL_SPLIT.pkl"
+                                        )
+                                        args["test_set_path"] = (
+                                            "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_TEST_SPLIT.pkl"
+                                        )
+                                        args["output_dir"] = (
+                                            f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_unconditional_{timestamp}"
+                                        )
 
-                                main(args)
+                                        main(args)
