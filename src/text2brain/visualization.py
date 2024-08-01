@@ -191,6 +191,55 @@ def plot_phoneme_distribution(
     plt.savefig(out_file)
 
 
+
+def plot_means_and_stds(means: np.ndarray, stds: np.ndarray, phoneme: str, out_dir: Path = None):
+    if out_dir is None:
+        out_dir = ROOT_DIR / "evaluation" / "vae" / "latent_dim_evaluation"
+
+    # FIRST PLOT
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
+
+    ax1.hist(means, bins=20, color="blue", edgecolor="black")
+    ax1.set_title("Histogram of Mean Values (256 dim)")
+    ax1.set_xlabel("Mean value of each channel in the latent space over all encodings")
+    ax1.set_ylabel("Frequency")
+
+    ax2.hist(stds, bins=20, color="green", edgecolor="black")
+    ax2.set_title("Histogram of Standard Deviation (STD) Values (256 dim))")
+    ax2.set_xlabel("STD value of each channel in the latent space over all encodings")
+    ax2.set_ylabel("Frequency")
+
+    fig.suptitle(f"VAE, Average Means and Standard Deviations (phonemes {phoneme})", fontsize=16)
+    plt.tight_layout()
+
+    out_file = (
+        out_dir
+        / f"average_means_and_stds__phoneme_{phoneme}__histogram.png"
+    )
+    plt.savefig(out_file)
+    print(f"Saved plot to: {out_file}")
+
+    # SECOND PLOT
+    channels = list(range(1, len(means) + 1))  # channels from 1 to 256
+
+    plt.figure(figsize=(12, 6))
+    plt.scatter(channels, means, color="blue", label="Mean Values", marker="x")
+    plt.scatter(channels, stds, color="green", label="STD Values", marker="o")
+
+    plt.title("Mean and STD Values for Each Channel")
+    plt.xlabel("Channel")
+    plt.ylabel("Value")
+    plt.legend()
+
+    out_file = (
+        out_dir
+        / f"average_means_and_stds__phoneme_{phoneme}__per_channel.png"
+    )
+    plt.savefig(out_file)
+    print(f"Saved plot to: {out_file}")
+
+
+
 if __name__ == "__main__":
     dataset_path = "/data/engs-pnpl/lina4471/willett2023/competitionData/pytorchTFRecords.pkl"
     print(ROOT_DIR)
