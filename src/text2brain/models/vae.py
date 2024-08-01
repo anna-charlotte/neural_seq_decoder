@@ -1,14 +1,18 @@
 import pickle
 from pathlib import Path
 from types import SimpleNamespace
+import math
 from typing import List, Optional, Tuple, TypeVar
 
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import tqdm
 from torch.utils.data import DataLoader
 
+from data.dataset import SyntheticPhonemeDataset
 from text2brain.models.model_interface import T2BGenInterface
 from text2brain.models.vae_interface import VAEBase
 from utils import load_args
@@ -157,8 +161,7 @@ class Encoder_128_8_8(nn.Module):
     def __init__(self, latent_dim: int):  # , classes: Optional[list] = None):
         super(Encoder_128_8_8, self).__init__()
         input_dim = 128
-        # if classes is not None:
-        # input_dim +=1
+
 
         self.model = nn.Sequential(
             nn.Conv2d(input_dim, 64, 3, 1, 1, bias=False),  # -> (64) x 8 x 8
@@ -187,14 +190,16 @@ class Encoder_128_8_8(nn.Module):
 
 
 class Decoder_128_8_8(nn.Module):
-    def __init__(self, latent_dim: int, classes: Optional[list] = None):
+    def __init__(self, latent_dim: int, classes: Optional[list] = None, dec_emb_dim: int = None):
         super(Decoder_128_8_8, self).__init__()
         self.classes = classes
+        
+        self.dec_emb_dim = len(self.classes) if dec_emb_dim is None else dec_emb_dim
 
         input_dim = latent_dim
         if classes is not None:
-            self.embedding = nn.Embedding(len(classes), len(classes))
-            input_dim += len(classes)
+            self.embedding = nn.Embedding(len(classes), self.dec_emb_dim)
+            input_dim += self.dec_emb_dim
 
         self.fc = nn.Sequential(nn.Linear(input_dim, 512), nn.ReLU(inplace=True))  # -> (512)
         self.model = nn.Sequential(
@@ -237,9 +242,10 @@ class Decoder_128_8_8(nn.Module):
 
 class CondVAE(VAEBase, T2BGenInterface):
     def __init__(
-        self, latent_dim: int, input_shape: Tuple[int, int, int], classes: list, device: str = "cpu"
+        self, latent_dim: int, input_shape: Tuple[int, int, int], classes: list, device: str = "cpu", dec_emb_dim: int = None
     ):
         super(CondVAE, self).__init__(latent_dim, input_shape, classes, device)
+        input_shape = tuple(input_shape)
 
         # TODO give classes to encoder and decoder
         if input_shape == (1, 256, 32):
@@ -250,7 +256,7 @@ class CondVAE(VAEBase, T2BGenInterface):
             self.decoder = Decoder_4_64_32(latent_dim).to(device)
         elif input_shape == (128, 8, 8):
             self.encoder = Encoder_128_8_8(latent_dim).to(device)
-            self.decoder = Decoder_128_8_8(latent_dim, classes).to(device)
+            self.decoder = Decoder_128_8_8(latent_dim, classes, dec_emb_dim).to(device)
         else:
             raise ValueError(
                 f"Invalid input shape ({input_shape}), we don't have a VAE version for this yet."
@@ -279,18 +285,37 @@ class CondVAE(VAEBase, T2BGenInterface):
         # with open(args_path, "rb") as file:
         #     args = pickle.load(file)
         args = load_args(args_path)
+        dec_emb_dim = None if "dec_emb_dim" not in args.keys() else args["dec_emb_dim"]
 
-        model = cls(latent_dim=args["latent_dim"], input_shape=args["input_shape"], device=args["device"])
+        model = cls(latent_dim=args["latent_dim"], input_shape=args["input_shape"], classes=args["phoneme_cls"], device=args["device"], dec_emb_dim=dec_emb_dim)
         model.load_state_dict(torch.load(weights_path))
 
         return model
 
     def sample(self, y: torch.Tensor) -> torch.Tensor:
-        z = torch.randn(y.size(0), self.latent_dim)
+        z = torch.randn(y.size(0), self.latent_dim).to(y.device)
         return self.decoder(z, y)
     
     def create_synthetic_phoneme_dataset(self, n_samples, neural_window_shape: Tuple[int, int, int]):
-        raise NotImplementedError
+        
+        assert isinstance(neural_window_shape, tuple)
+
+        classes = self.classes
+        n_per_class = math.ceil(n_samples / len(classes))
+
+        neural_windows = []
+        phoneme_labels = []
+
+        for label in classes:
+            # label = self.decoder._label_to_indices(labels=[kls], classes=classes)
+            label = torch.tensor([label]).to(self.device)
+            
+            for _ in range(n_per_class):
+                neural_window = self.sample(y=label)
+                neural_windows.append(neural_window.to("cpu"))
+                phoneme_labels.append(label.to("cpu"))
+
+        return SyntheticPhonemeDataset(neural_windows[:n_samples], phoneme_labels[:n_samples])
 
 
 
