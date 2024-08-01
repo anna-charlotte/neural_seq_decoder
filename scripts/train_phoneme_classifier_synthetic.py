@@ -13,7 +13,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
+from torchvision import transforms
 
+from data.augmentations import GaussianSmoothing
 from data.dataset import PhonemeDataset
 from neural_decoder.model_phoneme_classifier import (
     PhonemeClassifier,
@@ -21,7 +23,12 @@ from neural_decoder.model_phoneme_classifier import (
 )
 from neural_decoder.neural_decoder_trainer import get_data_loader
 from neural_decoder.phoneme_utils import PHONE_DEF, ROOT_DIR
-from neural_decoder.transforms import SoftsignTransform
+from neural_decoder.transforms import (
+    AddOneDimensionTransform,
+    ReorderChannelTransform,
+    SoftsignTransform,
+    TransposeTransform,
+)
 from text2brain.models.model_interface_load import load_t2b_gen_model
 from text2brain.models.phoneme_image_gan import _get_indices_in_classes
 from utils import load_pkl, set_seeds
@@ -38,14 +45,14 @@ def get_label_distribution(dataset):
 
 
 def main(args: dict) -> None:
-    print("Training with the following arguments:")
+    print("Training phoneme classifier with the following arguments:")
     for k, v in args.items():
         print(f"{k}: {v}")
 
+    set_seeds(args["seed"])
+
     out_dir = Path(args["output_dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
-
-    set_seeds(args["seed"])
 
     batch_size = args["batch_size"]
     device = args["device"]
@@ -56,18 +63,89 @@ def main(args: dict) -> None:
 
     transform = None
     if args["transform"] == "softsign":
-        transform = SoftsignTransform()
-    print(f"transform = {transform.__class__.__name__}")
+        transform = transforms.Compose(
+            [
+                TransposeTransform(0, 1),
+                ReorderChannelTransform(),
+                AddOneDimensionTransform(dim=0),
+                GaussianSmoothing(
+                    256,
+                    kernel_size=args["gaussian_smoothing_kernel_size"],
+                    sigma=args["gaussian_smoothing_sigma"],
+                    dim=1,
+                ),
+                SoftsignTransform(),
+            ]
+        )
 
     gen_model = load_t2b_gen_model(
         args_path=args["generative_model_args_path"],
         weights_path=args["generative_model_weights_path"],
     )
+    print(f"gen_model.__class__.__name__ = {gen_model.__class__.__name__}")
+
+    # weights = [layer.get_weights()[0] for layer in gen_model.decoder.layers if len(layer.get_weights()) > 0]
+
+    fc_weights = gen_model.decoder.fc[0].weight.data.detach().cpu().numpy()
+    print(f"fc_weights.shape = {fc_weights.shape}")
+    y_weights = fc_weights[:, 256:]
+    print(f"y_weights.shape = {y_weights.shape}")
+
+    conv_layers = [layer for layer in gen_model.decoder.model if isinstance(layer, nn.ConvTranspose2d)]
+    conv_weights = [layer.weight.data.cpu().numpy() for layer in conv_layers]
+
+    # Plotting the heatmaps of the weights
+    plt.figure(figsize=(15, 5))
+
+    # Fully connected layer heatmap
+    plt.subplot(1, len(conv_weights) + 1, 1)
+
+    sns.heatmap(fc_weights, cmap='viridis')
+    plt.title('Fully Connected Layer Weights')
+    fc_mean = np.mean(fc_weights[:, :256])
+    fc_max = np.amax(fc_weights[:, :256])
+    fc_min = np.amin(fc_weights[:, :256])
+    print(f"fc_mean = {fc_mean}")
+    print(f"fc_max = {fc_max}")
+    print(f"fc_min = {fc_min}")
+    
+    # plt.subplot(1, len(conv_weights) + 2, 2)
+    # sns.heatmap(fc_weights[:, 256:], cmap='viridis')
+    # plt.title('Fully Connected Layer Weights (label embedding)')
+    y_dec_mean = np.mean(fc_weights[:, 256:])
+    y_dec_max = np.amax(fc_weights[:, 256:])
+    y_dec_min = np.amin(fc_weights[:, 256:])
+    print(f"y_dec_mean = {y_dec_mean}")
+    print(f"y_dec_max = {y_dec_max}")
+    print(f"y_dec_min = {y_dec_min}")
+
+    # Convolutional layers heatmaps
+    for i, weight_matrix in enumerate(conv_weights):
+        plt.subplot(1, len(conv_weights) + 1, i + 2)
+        sns.heatmap(weight_matrix.reshape(weight_matrix.shape[0], -1), cmap='viridis')
+        plt.title(f'ConvTranspose2d Layer {i + 1} Weights')
+
+    plt.tight_layout()
+    plt.savefig(ROOT_DIR / "plots" / "model_weights.png")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     # synthetic training set
     train_ds_syn = gen_model.create_synthetic_phoneme_dataset(
         n_samples=args["generative_model_n_samples"],
-        neural_window_shape=(32, 256),
+        neural_window_shape=(1, 32, 256),
     )
     train_dl_syn = DataLoader(
         train_ds_syn,
@@ -81,7 +159,7 @@ def main(args: dict) -> None:
     # synthetic test set
     test_ds_syn = gen_model.create_synthetic_phoneme_dataset(
         n_samples=4_000,
-        neural_window_shape=(32, 256),
+        neural_window_shape=(1, 32, 256),
     )
     test_dl_syn = DataLoader(
         test_ds_syn,
@@ -92,10 +170,23 @@ def main(args: dict) -> None:
         collate_fn=None,
     )
 
+    # real val set
+    val_file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_VAL_SPLIT.pkl"
+    val_data = load_pkl(val_file)
+
+    val_dl_real = get_data_loader(
+        data=val_data,
+        batch_size=1,
+        shuffle=False,
+        collate_fn=None,
+        dataset_cls=PhonemeDataset,
+        phoneme_ds_filter=phoneme_ds_filter,
+        class_weights=None,
+        transform=transform,
+    )
+
     # real test set
-    test_file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
-    # with open(test_file, "rb") as handle:
-    # test_data = pickle.load(handle)
+    test_file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_TEST_SPLIT.pkl"
     test_data = load_pkl(test_file)
 
     test_dl_real = get_data_loader(
@@ -116,7 +207,11 @@ def main(args: dict) -> None:
     n_epochs = args["n_epochs"]
     lr = args["lr"]
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    criterion = nn.CrossEntropyLoss()
+    
+    if n_classes == 2:
+        criterion = nn.BCEWithLogitsLoss()
+    else:
+        criterion = nn.CrossEntropyLoss()
 
     with open(out_dir / "args", "wb") as file:
         pickle.dump(args, file)
@@ -149,25 +244,23 @@ if __name__ == "__main__":
     args["test_set_path"] = str(data_dir / "rnn_test_set_with_logits_TEST_SPLIT.pkl")
     args["n_epochs"] = 10
 
-    for lr in [1e-4]:
+    for lr in [1e-3]:
         for batch_size in [64, 128]:
             for cls_weights in ["sqrt", None]:
-                for synthetic_data in [True]:
                     now = datetime.now()
                     timestamp = now.strftime("%Y%m%d_%H%M%S")
 
                     args["output_dir"] = (
                         f"/data/engs-pnpl/lina4471/willett2023/phoneme_classifier/PhonemeClassifier_bs_{batch_size}__lr_{lr}__cls_ws_{cls_weights}__train_on_only_synthetic_{timestamp}"
                     )
-                    if synthetic_data:
-                        args["generative_model_args_path"] = (
-                            "/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_20240708_103107/args"
-                        )
-                        args["generative_model_weights_path"] = (
-                            "/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_20240708_103107/modelWeights_epoch_6"
-                        )
-                        args["generative_model_n_samples"] = 50_000
-                        print(args["generative_model_weights_path"])
+                    args["generative_model_args_path"] = (
+                        "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_unconditional_20240801_082756/args.json"
+                    )
+                    args["generative_model_weights_path"] = (
+                        "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_unconditional_20240801_082756/modelWeights"
+                    )
+                    args["generative_model_n_samples"] = 50_000
+                    print(args["generative_model_weights_path"])
 
                     args["input_shape"] = (128, 8, 8)
                     args["lr"] = lr
@@ -175,8 +268,9 @@ if __name__ == "__main__":
                     args["class_weights"] = cls_weights
                     args["transform"] = "softsign"
                     args["patience"] = 20
-                    args["gaussian_smoothing"] = 2.0
-                    args["phoneme_cls"] = list(range(1, 40))
+                    args["gaussian_smoothing_kernel_size"] = 20
+                    args["gaussian_smoothing_sigma"] = 2.0
+                    args["phoneme_cls"] = [3, 31]  # list(range(1, 40))
                     args["correctness_value"] = ["C"]
 
                     print(
