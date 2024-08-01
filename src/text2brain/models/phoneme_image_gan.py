@@ -115,7 +115,7 @@ class PhonemeImageGAN(T2BGenInterface):
         return gen_img
 
     def create_synthetic_phoneme_dataset(
-        self, n_samples, label_distribution: list = None, neural_window_shape: tuple = (128, 8, 8)
+        self, n_samples, neural_window_shape: tuple = (128, 8, 8), label_distribution: list = None
     ):
         assert isinstance(neural_window_shape, tuple)
 

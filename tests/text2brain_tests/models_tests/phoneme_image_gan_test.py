@@ -201,7 +201,7 @@ def test_create_synthetic_phoneme_dataset():
     )
     n_samples = 100
     label_distribution = [0.1, 0.1, 0.1, 0.35, 0.35]
-    ds = gan.create_synthetic_phoneme_dataset(n_samples, label_distribution)
+    ds = gan.create_synthetic_phoneme_dataset(n_samples, label_distribution=label_distribution)
     print(len(ds))
 
     assert len(ds) == n_samples
