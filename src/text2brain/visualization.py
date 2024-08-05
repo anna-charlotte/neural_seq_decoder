@@ -240,6 +240,142 @@ def plot_means_and_stds(means: np.ndarray, stds: np.ndarray, phoneme: str, out_d
 
 
 
+def plot_elbo_loss(
+    all_losses: List[int], all_mse: List[int], all_kld: List[int], out_file: Path, title: str
+) -> None:
+    """
+    Plot and save the training loss, mean squared error (MSE), and kullback leibler divergence (KLD) over epochs.
+    """
+    fig, axes = plt.subplots(3, 1, figsize=(12, 18))
+    fig.suptitle(title, fontsize=16)
+
+    # plot training loss on the first subplot
+    axes[0].plot(all_losses, label="ELBOLoss", linewidth=0.5)
+    axes[0].set_title("ELBOLoss over Epochs")
+    axes[0].set_xlabel("Epoch")
+    axes[0].set_ylabel("ELBOLoss")
+    axes[0].legend()
+
+    # plot MSE on the second subplot
+    axes[1].plot(all_mse, label="MSE", linewidth=0.5)
+    axes[1].set_title("MSE over Epochs")
+    axes[1].set_xlabel("Epoch")
+    axes[1].set_ylabel("MSE Loss")
+    axes[1].legend()
+
+    # plot KLD on the third subplot
+    axes[2].plot(all_kld, label="KLD", linewidth=0.5)
+    axes[2].set_title("KLD over Epochs")
+    axes[2].set_xlabel("Epoch")
+    axes[2].set_ylabel("KLD Loss")
+    axes[2].legend()
+
+    plt.tight_layout()
+    plt.savefig(out_file)
+    plt.close()
+
+
+def plot_geco_loss(
+    all_losses: List[int],
+    all_mse: List[int],
+    all_kld: List[int],
+    all_beta: List[int],
+    out_file: Path,
+    geco_goal: float,
+    title: str,
+) -> None:
+    """
+    Plot and save the training loss, mean squared error (MSE), kullback leibler divergence (KLD), and beta values over epochs, with a GECO goal line.
+    """
+    fig, axes = plt.subplots(2, 2, figsize=(18, 12))
+    fig.suptitle(title, fontsize=16)
+
+    # plot training loss on top left subplot
+    axes[0, 0].plot(all_losses, label="GECOLoss", linewidth=0.5)
+    axes[0, 0].set_title("GECOLoss over Epochs")
+    axes[0, 0].set_xlabel("Epoch")
+    axes[0, 0].set_ylabel("GECOLoss")
+    axes[0, 0].legend()
+    axes[0, 0].grid(True)
+
+    # plot MSE on top right subplot
+    axes[0, 1].plot(all_mse, label="MSE", linewidth=0.5)
+    axes[0, 1].set_title("MSE over Epochs")
+    axes[0, 1].set_xlabel("Epoch")
+    axes[0, 1].set_ylabel("MSE Loss")
+    axes[0, 1].axhline(y=geco_goal, color="r", linestyle="--", linewidth=1)
+    axes[0, 1].text(
+        x=len(all_mse) - 1,
+        y=geco_goal,
+        s="GECO goal",
+        color="r",
+        verticalalignment="bottom",
+        horizontalalignment="right",
+    )
+    axes[0, 1].legend()
+    axes[0, 1].grid(True)
+
+    # plot KLD on lower left subplot
+    axes[1, 0].plot(all_kld, label="KLD", linewidth=0.5)
+    axes[1, 0].set_title("KLD over Epochs")
+    axes[1, 0].set_xlabel("Epoch")
+    axes[1, 0].set_ylabel("KLD Loss")
+    axes[1, 0].legend()
+    axes[1, 0].grid(True)
+
+    # plot betas per n batch, while the otheras are plotted per epoch
+    axes[1, 1].plot(all_beta, label="Beta", linewidth=0.5)
+    axes[1, 1].set_title("Beta over Epochs")
+    axes[1, 1].set_xlabel("Epoch")
+    axes[1, 1].set_ylabel("Beta Value")
+    axes[1, 1].legend()
+    axes[1, 1].grid(True)
+
+    plt.tight_layout()
+    plt.savefig(out_file)
+    plt.close()
+
+
+def plot_original_vs_reconstructed_image(X: np.ndarray, X_recon: np.ndarray, out_file: Path) -> None:
+    fig, axes = plt.subplots(1, 2, figsize=(5, 5))
+
+    # set the color range
+    vmin, vmax = -1, 1
+
+    # display the first image
+    im0 = axes[0].imshow(X, cmap="plasma", vmin=vmin, vmax=vmax)
+    axes[0].axis("off")
+    axes[0].set_title("Original image")
+
+    # display the second image
+    im1 = axes[1].imshow(X_recon, cmap="plasma", vmin=vmin, vmax=vmax)
+    axes[1].axis("off")
+    axes[1].set_title("Reconstructed image")
+
+    fig.colorbar(im0, ax=axes[0])
+    fig.colorbar(im1, ax=axes[1])
+
+    plt.tight_layout()
+    plt.savefig(out_file)
+    plt.close()
+
+
+def plot_single_image(X: np.ndarray, out_file: Path, title: str) -> None:
+    fig, ax = plt.subplots(1, 1, figsize=(5, 5))
+    vmin, vmax = -1, 1
+
+    im0 = ax.imshow(X, cmap="plasma", vmin=vmin, vmax=vmax)
+    ax.axis("off")
+    ax.set_title(title)
+
+    fig.colorbar(im0, ax=ax)
+
+    plt.tight_layout()
+    plt.savefig(out_file)
+    plt.close()
+
+
+
 if __name__ == "__main__":
     dataset_path = "/data/engs-pnpl/lina4471/willett2023/competitionData/pytorchTFRecords.pkl"
     print(ROOT_DIR)

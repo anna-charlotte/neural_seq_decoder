@@ -23,104 +23,97 @@ from neural_decoder.transforms import (
 )
 from text2brain.models.loss import ELBOLoss, GECOLoss
 from text2brain.models.vae import VAE, CondVAE, logvar_to_std
-from text2brain.visualization import plot_brain_signal_animation, plot_means_and_stds
-from utils import load_pkl, set_seeds
+from text2brain.visualization import plot_brain_signal_animation, plot_means_and_stds, plot_elbo_loss, plot_geco_loss, plot_single_image, plot_original_vs_reconstructed_image
+from utils import dump_args, load_args, load_pkl, set_seeds
 
 
-def plot_elbo_loss(
-    all_losses: List[int], all_mse: List[int], all_kld: List[int], out_file: Path, title: str
-) -> None:
-    """
-    Plot and save the training loss, mean squared error (MSE), and kullback leibler divergence (KLD) over epochs.
-    """
-    fig, axes = plt.subplots(3, 1, figsize=(12, 18))
-    fig.suptitle(title, fontsize=16)
-
-    # plot training loss on the first subplot
-    axes[0].plot(all_losses, label="ELBOLoss", linewidth=0.5)
-    axes[0].set_title("ELBOLoss over Epochs")
-    axes[0].set_xlabel("Epoch")
-    axes[0].set_ylabel("ELBOLoss")
-    axes[0].legend()
-
-    # plot MSE on the second subplot
-    axes[1].plot(all_mse, label="MSE", linewidth=0.5)
-    axes[1].set_title("MSE over Epochs")
-    axes[1].set_xlabel("Epoch")
-    axes[1].set_ylabel("MSE Loss")
-    axes[1].legend()
-
-    # plot KLD on the third subplot
-    axes[2].plot(all_kld, label="KLD", linewidth=0.5)
-    axes[2].set_title("KLD over Epochs")
-    axes[2].set_xlabel("Epoch")
-    axes[2].set_ylabel("KLD Loss")
-    axes[2].legend()
-
-    plt.tight_layout()
-    plt.savefig(out_file)
-    plt.close()
+def dicts_match(d1: dict, d2:dict, keys_to_ignore: List[str], verbose: bool):
+    """Compare two dictionaries excluding the keys_to_ignore. """
+    for key in d1.keys():
+        if key not in keys_to_ignore and d1.get(key) != d2.get(key):
+            if verbose:
+                
+                print(f"key = {key}")
+                print(f"d1.get(key) = {d1.get(key)}")
+                print(f"d2.get(key) = {d2.get(key)}")
+            v1 = d1.get(key)
+            v2 = d2.get(key)
+            if isinstance(v1, tuple) or isinstance(v1, list):
+                if not list(v1) == list(v2):
+                    return False
+    for key in d2.keys():
+        if key not in keys_to_ignore and d1.get(key) != d2.get(key):
+            return False
+    return True
 
 
-def plot_geco_loss(
-    all_losses: List[int],
-    all_mse: List[int],
-    all_kld: List[int],
-    all_beta: List[int],
-    out_file: Path,
-    geco_goal: float,
-    title: str,
-) -> None:
-    """
-    Plot and save the training loss, mean squared error (MSE), kullback leibler divergence (KLD), and beta values over epochs, with a GECO goal line.
-    """
-    fig, axes = plt.subplots(2, 2, figsize=(18, 12))
-    fig.suptitle(title, fontsize=16)
+def find_matching_args_files(base_dir: Path, target_args: dict, keys_to_ignore: List[str]) -> Optional[List[Path]]:
+    paths = []
+    for file_path in base_dir.rglob("args.json"): 
+        if "VAE_unconditional_20240805_150829" in file_path.parts:
+            verbose=True
+        else:
+            verbose=False
+        if "bin" in file_path.parts:
+            continue
+        args = load_args(file_path)
+        equal_dicts = dicts_match(args, target_args, keys_to_ignore, verbose)
+        if equal_dicts:
+            paths.append(file_path)
 
-    # plot training loss on top left subplot
-    axes[0, 0].plot(all_losses, label="GECOLoss", linewidth=0.5)
-    axes[0, 0].set_title("GECOLoss over Epochs")
-    axes[0, 0].set_xlabel("Epoch")
-    axes[0, 0].set_ylabel("GECOLoss")
-    axes[0, 0].legend()
-    axes[0, 0].grid(True)
+    if len(paths) != 0:
+        return paths
+    else:
+        return None
 
-    # plot MSE on top right subplot
-    axes[0, 1].plot(all_mse, label="MSE", linewidth=0.5)
-    axes[0, 1].set_title("MSE over Epochs")
-    axes[0, 1].set_xlabel("Epoch")
-    axes[0, 1].set_ylabel("MSE Loss")
-    axes[0, 1].axhline(y=geco_goal, color="r", linestyle="--", linewidth=1)
-    axes[0, 1].text(
-        x=len(all_mse) - 1,
-        y=geco_goal,
-        s="GECO goal",
-        color="r",
-        verticalalignment="bottom",
-        horizontalalignment="right",
-    )
-    axes[0, 1].legend()
-    axes[0, 1].grid(True)
 
-    # plot KLD on lower left subplot
-    axes[1, 0].plot(all_kld, label="KLD", linewidth=0.5)
-    axes[1, 0].set_title("KLD over Epochs")
-    axes[1, 0].set_xlabel("Epoch")
-    axes[1, 0].set_ylabel("KLD Loss")
-    axes[1, 0].legend()
-    axes[1, 0].grid(True)
+def load_checkpoint(model, args, base_dir, keys_to_ignore):
+    print("LOOKING FOR CHECKPOINT")
+    if "start_epoch" not in args.keys():
+        args["start_epoch"] = 0
 
-    # plot betas per n batch, while the otheras are plotted per epoch
-    axes[1, 1].plot(all_beta, label="Beta", linewidth=0.5)
-    axes[1, 1].set_title("Beta over Epochs")
-    axes[1, 1].set_xlabel("Epoch")
-    axes[1, 1].set_ylabel("Beta Value")
-    axes[1, 1].legend()
-    axes[1, 1].grid(True)
+    # finda model where the args are same except key_to_ignore
+    matching_arg_files = find_matching_args_files(base_dir, args, keys_to_ignore)
 
-    plt.tight_layout()
-    plt.savefig(out_file)
-    plt.close()
+    if matching_arg_files is None:
+        print("No checkpoint found.")
+        return model, args, None
+
+    max_epoch = -1
+    best_weights_path = None
+
+    for p in matching_arg_files:
+        print(f"p = {p}")
+
+    for arg_path in matching_arg_files:
+        path = arg_path.parent
+
+        weights_path = None
+        for file_path in path.rglob("*"):
+            if "modelWeights_before_passing_max_beta" in file_path.name:
+                weights_path = file_path
+                break
+
+        if weights_path is not None:
+            loaded_stats = load_args(path / "trainingStats.json")
+            epoch = loaded_stats["epoch_ckps"]["modelWeights_before_passing_max_beta"]
+            if epoch > max_epoch:
+                max_epoch = epoch
+                best_weights_path = weights_path
+            
+    if best_weights_path is not None:
+        print(f"\nSelected weights_path = {best_weights_path} \n with max_epoch = {max_epoch}")
+        best_dir = best_weights_path.parent
+        loaded_stats = load_args(best_dir / "trainingStats.json")
+        model.load_state_dict(torch.load(best_weights_path))
+
+        args["start_epoch"] = max_epoch
+        args["checkpoint_loaded_from"] = str(best_weights_path)
+
+        return model, args, loaded_stats
+
+    print("No modelWeights file found.")
+    return model, args, None
 
 
 def main(args: dict) -> None:
@@ -129,14 +122,12 @@ def main(args: dict) -> None:
     out_dir = Path(args["output_dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    writer = SummaryWriter(log_dir=str(out_dir / "tb_logs"))
+
     device = args["device"]
     batch_size = args["batch_size"]
 
-    train_file = args["train_set_path"]
-    # with open(train_file, "rb") as handle:
-    #     train_data = pickle.load(handle)
-    train_data = load_pkl(train_file)
-
+    train_data = load_pkl(args["train_set_path"])
     transform = None
     if args["transform"] == "softsign":
         transform = transforms.Compose(
@@ -170,11 +161,7 @@ def main(args: dict) -> None:
 
     print(f"len(train_dl.dataset) = {len(train_dl.dataset)}")
 
-    val_file = args["val_set_path"]
-    # with open(val_file, "rb") as handle:
-    #     val_data = pickle.load(handle)
-    val_data = load_pkl(val_file)
-
+    val_data = load_pkl(args["val_set_path"])
     val_dl = get_data_loader(
         data=val_data,
         batch_size=batch_size,
@@ -185,11 +172,7 @@ def main(args: dict) -> None:
         transform=transform,
     )
 
-    test_file = args["test_set_path"]
-    # with open(test_file, "rb") as handle:
-    #     test_data = pickle.load(handle)
-    test_data = load_pkl(test_file)
-
+    test_data = load_pkl(args["test_set_path"])
     test_dl = get_data_loader(
         data=test_data,
         batch_size=batch_size,
@@ -201,12 +184,20 @@ def main(args: dict) -> None:
     )
 
     # model = VAE(latent_dim=args["latent_dim"], input_shape=args["input_shape"], device=device)
+    n_layers_film = args["n_layers_film"]
     model = CondVAE(
-        latent_dim=args["latent_dim"], input_shape=args["input_shape"], classes=phoneme_cls, device=device, dec_emb_dim=args["dec_emb_dim"]
+        latent_dim=args["latent_dim"], 
+        input_shape=tuple(args["input_shape"]), 
+        classes=phoneme_cls, 
+        conditioning=args["conditioning"], 
+        device=device, 
+        n_layers_film=n_layers_film,
+        # dec_emb_dim=args["dec_emb_dim"],
     )
     args["model_class"] = model.__class__.__name__
 
-    optimizer = optim.Adam(model.parameters(), lr=args["lr"])
+    # optimizer = optim.Adam(model.parameters(), lr=args["lr"])
+    optimizer = optim.AdamW(model.parameters(), lr=args["lr"])
     if args["loss"] == "elbo":
         loss_fn = ELBOLoss(reduction=args["loss_reduction"])
     elif args["loss"] == "geco":
@@ -221,29 +212,36 @@ def main(args: dict) -> None:
 
     print(f"loss_fn.__class__.__name__ = {loss_fn.__class__.__name__}")
 
-    writer = SummaryWriter(log_dir=str(out_dir / "tb_logs"))
-
-    all_mse = {"train": [], "val": []}
-    all_kld = {"train": [], "val": []}
-    all_epoch_loss = {"train": [], "val": []}
-    all_betas = []
-
+    model, args, stats = load_checkpoint(model, args, out_dir.parent, keys_to_ignore=["geco_max_beta", "output_dir", "plot_dir", "n_epochs"])
+        
+    if stats is None:
+        all_mse = {"train": [], "val": []}
+        all_kld = {"train": [], "val": []}
+        all_epoch_loss = {"train": [], "val": []}
+        all_betas = []
+        checkpoints = {}
+    else:
+        all_mse = stats["mse"]
+        all_kld = stats["kld"]
+        all_epoch_loss = stats["loss"]
+        all_betas = stats["beta"]
+        checkpoints = stats["epoch_ckps"]
+    
+    vae_dir = "vae_conditional" if isinstance(model, CondVAE) else "vae"
     plot_dir = (
         ROOT_DIR
         / "evaluation"
-        / "vae_conditional"
-        / "run_20240801_1_phoneme_3_31"
-        / f"reconstructed_images_model_input_shape_{'_'.join(map(str, args['input_shape']))}__dec_emb_dim_{args['dec_emb_dim']}__latent_dim_{args['latent_dim']}__loss_{args['loss']}_{args['geco_goal']}_{args['geco_step_size']}_{args['geco_beta_init']}_{args['geco_beta_max']}__lr_{args['lr']}__gs_{args['gaussian_smoothing_kernel_size']}_{args['gaussian_smoothing_sigma']}__bs_{batch_size}__phoneme_cls_{'_'.join(map(str, phoneme_cls))}"
+        / vae_dir
+        / "run_20240805_0__phoneme_3_31__film_n_layers_2"
+        / f"reconstructed_images_model_input_shape_{'_'.join(map(str, args['input_shape']))}__cond_{args['conditioning']}__dec_emb_dim_{args['dec_emb_dim']}__latent_dim_{args['latent_dim']}__loss_{args['loss']}_{args['geco_goal']}_{args['geco_step_size']}_{args['geco_beta_init']}_{args['geco_beta_max']}__lr_{args['lr']}__gs_{args['gaussian_smoothing_kernel_size']}_{args['gaussian_smoothing_sigma']}__bs_{batch_size}__phoneme_cls_{'_'.join(map(str, phoneme_cls))}"
     )
     plot_dir.mkdir(parents=True, exist_ok=True)
     print(f"plot_dir = {plot_dir}")
+    args["plot_dir"] = str(plot_dir)
 
-    with open(out_dir / "args", "wb") as file:
-        pickle.dump(args, file)
-    with open(out_dir / "args.json", "w") as file:
-        json.dump(args, file, indent=4)
-    with open(plot_dir / "args.json", "w") as file:
-        json.dump(args, file, indent=4)
+    dump_args(args, out_dir / "args")
+    dump_args(args, out_dir / "args.json")
+    dump_args(args, plot_dir / "args.json")
 
     print("\nArguments:")
     for k, v in args.items():
@@ -252,9 +250,13 @@ def main(args: dict) -> None:
     n_batches_train = len(train_dl)
     n_batches_val = len(val_dl)
 
+    start_epoch = args["start_epoch"]
     n_epochs = args["n_epochs"]
+    
+    first_ckp = True
+    second_ckp = True
 
-    for epoch in range(n_epochs):
+    for epoch in range(start_epoch, n_epochs):
         epoch_train_loss, epoch_train_mse, epoch_train_kld = 0.0, 0.0, 0.0
         all_mu = []
         all_std = []
@@ -294,8 +296,15 @@ def main(args: dict) -> None:
                         X_recon[j][0].cpu().detach().numpy(),
                         plot_dir / f"reconstructed_image_{epoch}_{i}__cls_{y[j]}.png",
                     )
+                    generated_image = model.sample(y[j].view(-1,)).cpu().detach().numpy()
+                    plot_single_image(
+                        X=generated_image[0][0],
+                        out_file=plot_dir / f"generated_image_{epoch}_{i}__cls_{y[j]}.png",
+                        title=f"Generated image, phonem class {y[j]}"
+                    )
 
-        all_epoch_loss["train"].append(epoch_train_loss / n_batches_train)
+        train_loss = epoch_train_loss / n_batches_train
+        all_epoch_loss["train"].append(train_loss)
         all_mse["train"].append(epoch_train_mse / n_batches_train)
         all_kld["train"].append(epoch_train_kld / n_batches_train)
 
@@ -303,11 +312,6 @@ def main(args: dict) -> None:
         if epoch % 10 == 0:
             mean_mu = np.mean(np.concatenate(all_mu, axis=0), axis=0)
             mean_std = np.mean(np.concatenate(all_std, axis=0), axis=0)
-            print(f"mean_mu.shape = {mean_mu.shape}")
-            print(f"mean_std.shape = {mean_std.shape}")
-            assert mean_mu.shape == (args["latent_dim"],)
-            assert mean_std.shape == (args["latent_dim"],)
-
             plot_means_and_stds(means=mean_mu, stds=mean_std, phoneme=f"3_31__epoch_{epoch}", out_dir=plot_dir)
 
         # validate on val set at end of epoch
@@ -333,9 +337,32 @@ def main(args: dict) -> None:
         writer.add_scalar("Epoch_KLD/Val", epoch_val_kld / n_batches_val, epoch)
 
         print(
-            f"[{epoch}/{n_epochs}] train_loss: {epoch_train_loss / n_batches_train} val_loss: {epoch_val_loss / n_batches_val}"
+            f"[{epoch}/{n_epochs}] train_loss: {train_loss} val_loss: {epoch_val_loss / n_batches_val}"
         )
         model.save_state_dict(out_dir / f"modelWeights")
+        
+        # save checkpoints
+        if isinstance(loss_fn, GECOLoss):
+            if first_ckp:
+                if train_loss > loss_fn.goal:
+                    model.save_state_dict(out_dir / f"modelWeights_before_passing_goal_{loss_fn.goal}.pt")
+                    checkpoints[f"modelWeights_before_passing_goal"] = epoch
+                else:
+                    first_ckp = False
+
+            if second_ckp:
+                if loss_fn.beta < loss_fn.beta_max:
+                    model.save_state_dict(out_dir / f"modelWeights_before_passing_max_beta_{args['geco_beta_max']}.pt")
+                    checkpoints[f"modelWeights_before_passing_max_beta"] = epoch
+                else:
+                    second_ckp = False
+
+        print(f"checkpoints = {checkpoints}")
+
+        # save training statistics
+        stats = {"loss": all_epoch_loss, "mse": all_mse, "kld": all_kld, "beta": all_betas, "epoch_ckps": checkpoints}
+        dump_args(stats, plot_dir / "trainingStats.json")
+        dump_args(stats, out_dir / "trainingStats.json")
 
         if isinstance(loss_fn, ELBOLoss):
             plot_elbo_loss(
@@ -372,94 +399,70 @@ def main(args: dict) -> None:
                 title="Validation Metrics",
             )
 
-        # save training statistics
-        with open(plot_dir / "trainingStats.json", "w") as file:
-            json.dump(
-                {"loss": all_epoch_loss, "mse": all_mse, "kld": all_kld, "beta": all_betas}, file, indent=4
-            )
-
     writer.close()
-
-
-def plot_original_vs_reconstructed_image(X: np.ndarray, X_recon: np.ndarray, out_file: Path) -> None:
-    fig, axes = plt.subplots(1, 2, figsize=(5, 5))
-
-    # Set the color range
-    vmin, vmax = -1, 1
-
-    # Display the first image
-    im0 = axes[0].imshow(X, cmap="plasma", vmin=vmin, vmax=vmax)
-    axes[0].axis("off")
-    axes[0].set_title("Original image")
-
-    # Display the second image
-    im1 = axes[1].imshow(X_recon, cmap="plasma", vmin=vmin, vmax=vmax)
-    axes[1].axis("off")
-    axes[1].set_title("Reconstructed image")
-
-    # Add colorbars
-    fig.colorbar(im0, ax=axes[0])
-    fig.colorbar(im1, ax=axes[1])
-
-    # Display the plot
-    plt.tight_layout()
-    plt.savefig(out_file)
-    plt.close()
 
 
 if __name__ == "__main__":
     print("In training ...")
 
-    for input_shape in [(128, 8, 8)]:  # [(4, 64, 32), (1, 256, 32), (128, 8, 8)]:
+    for input_shape in [[128, 8, 8]]:  # [(4, 64, 32), (1, 256, 32), (128, 8, 8)]:
         for loss in ["geco"]:  # ["elbo", "geco"]:
-            for lr in [1e-4]:  # [1e-3, 1e-4, 1e-5]:
+            for lr in [1e-3]:  # [1e-3, 1e-4, 1e-5]:
                 for latent_dim in [256]:  # , 128, 100]:
-                    for geco_goal in [0.045]:  # , 0.037]:
+                    for geco_goal in [0.055]:  # , 0.037]:
                         for geco_step_size in [1e-2]:  # , 1e-3, 1e-4]:
                             for geco_beta_init in [1e-3]:  # , 1e-5, 1e-7]:
-                                for dec_emb_dim in [32]:
-                                    for geco_beta_max in [1e-3, 2e-3, 3e-3, 4e-4, 1e-4]:
+                                for dec_emb_dim in [None]:  # [8, 16, 32]:
+                                    for geco_beta_max in [1e-1]:
+                                        for conditioning in ["film"]:
+                                            for n_layers_film in [2]:  #, 1]:
+                                                # for dec_hidden_dim in [256]:
 
-                                        now = datetime.now()
-                                        timestamp = now.strftime("%Y%m%d_%H%M%S")
+                                                now = datetime.now()
+                                                timestamp = now.strftime("%Y%m%d_%H%M%S")
 
-                                        args = {}
-                                        args["seed"] = 0
-                                        args["device"] = "cuda"
-                                        args["batch_size"] = 64
-                                        args["phoneme_cls"] = [3, 31]  # list(range(1, 40))
-                                        args["dec_emb_dim"] = dec_emb_dim
+                                                args = {}
+                                                args["n_layers_film"] = n_layers_film
 
-                                        args["loss"] = loss
-                                        args["loss_reduction"] = "mean"
-                                        if loss == "geco":
-                                            args["geco_goal"] = geco_goal
-                                            args["geco_beta_init"] = geco_beta_init
-                                            args["geco_step_size"] = geco_step_size
-                                            args["geco_beta_max"] = geco_beta_max
+                                                args["seed"] = 0
+                                                args["device"] = "cuda"
+                                                args["batch_size"] = 64
+                                                args["phoneme_cls"] = [3, 31]  # list(range(1, 40))
+                                                args["conditioning"] = conditioning
 
-                                        # args["input_dim"] = 100
-                                        args["latent_dim"] = latent_dim
-                                        args["input_shape"] = input_shape
+                                                args["loss"] = loss
+                                                args["loss_reduction"] = "mean"
+                                                if loss == "geco":
+                                                    args["geco_goal"] = geco_goal
+                                                    args["geco_beta_init"] = geco_beta_init
+                                                    args["geco_step_size"] = geco_step_size
+                                                    args["geco_beta_max"] = geco_beta_max
 
-                                        args["n_epochs"] = 100
-                                        args["lr"] = lr
+                                                # args["input_dim"] = 100
+                                                args["input_shape"] = input_shape
+                                                args["latent_dim"] = latent_dim
+                                                # args["dec_hidden_dim"] = dec_hidden_dim
+                                                args["dec_emb_dim"] = dec_emb_dim
 
-                                        args["transform"] = "softsign"
-                                        args["gaussian_smoothing_kernel_size"] = 20
-                                        args["gaussian_smoothing_sigma"] = 2.0
+                                                args["start_epoch"] = 0
+                                                args["n_epochs"] = 300
+                                                args["lr"] = lr
 
-                                        args["train_set_path"] = (
-                                            "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
-                                        )
-                                        args["val_set_path"] = (
-                                            "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_VAL_SPLIT.pkl"
-                                        )
-                                        args["test_set_path"] = (
-                                            "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_TEST_SPLIT.pkl"
-                                        )
-                                        args["output_dir"] = (
-                                            f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_unconditional_{timestamp}"
-                                        )
+                                                args["transform"] = "softsign"
+                                                args["gaussian_smoothing_kernel_size"] = 20
+                                                args["gaussian_smoothing_sigma"] = 2.0
 
-                                        main(args)
+                                                args["train_set_path"] = (
+                                                    "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
+                                                )
+                                                args["val_set_path"] = (
+                                                    "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_VAL_SPLIT.pkl"
+                                                )
+                                                args["test_set_path"] = (
+                                                    "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_TEST_SPLIT.pkl"
+                                                )
+                                                args["output_dir"] = (
+                                                    f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_unconditional_{timestamp}"
+                                                )
+
+                                                main(args)

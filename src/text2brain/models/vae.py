@@ -2,7 +2,7 @@ import pickle
 from pathlib import Path
 from types import SimpleNamespace
 import math
-from typing import List, Optional, Tuple, TypeVar
+from typing import List, Optional, Tuple, TypeVar, Literal
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -189,17 +189,53 @@ class Encoder_128_8_8(nn.Module):
         return mu, logvar
 
 
+class FiLM(nn.Module):
+    def __init__(self, in_features: int, conditioning_dim: int, n_layers: int):
+        super(FiLM, self).__init__()
+
+        if n_layers not in [1, 2]:
+            raise ValueError(f"n_layers for FiLM must be either 1 or 2, given: {n_layers}")
+        
+        if n_layers == 1:
+            self.scale_network = nn.Sequential(
+                nn.Linear(conditioning_dim, in_features)
+            )
+            self.shift_network = nn.Sequential(
+                nn.Linear(conditioning_dim, in_features)
+            )
+        elif n_layers == 2:
+            self.scale_network = nn.Sequential(
+                nn.Linear(conditioning_dim, int(in_features / 2)),
+                nn.ReLU(),
+                nn.Linear(int(in_features / 2), in_features)
+            )
+            self.shift_network = nn.Sequential(
+                nn.Linear(conditioning_dim, int(in_features / 2)),
+                nn.ReLU(),
+                nn.Linear(int(in_features / 2), in_features)
+            )
+    
+    def forward(self, x, c):
+        gamma = self.scale_network(c)
+        beta = self.shift_network(c)
+
+        return gamma * x + beta
+
+
 class Decoder_128_8_8(nn.Module):
-    def __init__(self, latent_dim: int, classes: Optional[list] = None, dec_emb_dim: int = None):
+    def __init__(self, latent_dim: int, classes: Optional[list] = None, dec_emb_dim: int = None, conditioning: Literal["concat", "film"] = None, n_layers_film: int = None):
         super(Decoder_128_8_8, self).__init__()
         self.classes = classes
-        
         self.dec_emb_dim = len(self.classes) if dec_emb_dim is None else dec_emb_dim
+        self.conditioning = conditioning
 
         input_dim = latent_dim
-        if classes is not None:
+        if classes is not None and conditioning == "concat":
             self.embedding = nn.Embedding(len(classes), self.dec_emb_dim)
             input_dim += self.dec_emb_dim
+        if conditioning == "film":
+            self.film = FiLM(conditioning_dim=len(classes), in_features=latent_dim, n_layers=n_layers_film)
+            print(f"self.film = {self.film}")
 
         self.fc = nn.Sequential(nn.Linear(input_dim, 512), nn.ReLU(inplace=True))  # -> (512)
         self.model = nn.Sequential(
@@ -227,14 +263,20 @@ class Decoder_128_8_8(nn.Module):
 
     def forward(self, z, labels):
         """Forward pass. Label should be  not the index but the original phoneme class, such as in range(1, 40)"""
+        # TODO handle the unconditional case
         assert z.size(0) == labels.size(0)
 
         y_indices = self._label_to_indices(labels, self.classes)
-        y_emb = self.embedding(y_indices)
-        concat = torch.concat((z, y_emb), dim=1)
+        
+        if self.conditioning == "concat":
+            y_emb = self.embedding(y_indices)
+            h = torch.concat((z, y_emb), dim=1)
+        elif self.conditioning == "film":
+            y_one_hot = F.one_hot(y_indices, num_classes=len(self.classes)).float()
+            h = self.film(z, y_one_hot)
 
-        h = self.fc(concat)
-        h = h.view(h.size(0), 512, 1, 1)  # reshape to (512) x 1 x 1
+        h = self.fc(h)
+        h = h.view(h.size(0), 512, 1, 1)
         h = self.model(h)
         h = h.view(-1, 1, 256, 32)
         return h
@@ -242,10 +284,11 @@ class Decoder_128_8_8(nn.Module):
 
 class CondVAE(VAEBase, T2BGenInterface):
     def __init__(
-        self, latent_dim: int, input_shape: Tuple[int, int, int], classes: list, device: str = "cpu", dec_emb_dim: int = None
+        self, latent_dim: int, input_shape: Tuple[int, int, int], classes: list, conditioning: Literal["concat", "film"], device: str = "cpu", dec_emb_dim: int = None, n_layers_film: int = None
     ):
         super(CondVAE, self).__init__(latent_dim, input_shape, classes, device)
         input_shape = tuple(input_shape)
+        self.conditioning = conditioning
 
         # TODO give classes to encoder and decoder
         if input_shape == (1, 256, 32):
@@ -256,7 +299,7 @@ class CondVAE(VAEBase, T2BGenInterface):
             self.decoder = Decoder_4_64_32(latent_dim).to(device)
         elif input_shape == (128, 8, 8):
             self.encoder = Encoder_128_8_8(latent_dim).to(device)
-            self.decoder = Decoder_128_8_8(latent_dim, classes, dec_emb_dim).to(device)
+            self.decoder = Decoder_128_8_8(latent_dim, classes, dec_emb_dim, conditioning, n_layers_film).to(device)
         else:
             raise ValueError(
                 f"Invalid input shape ({input_shape}), we don't have a VAE version for this yet."
@@ -282,8 +325,6 @@ class CondVAE(VAEBase, T2BGenInterface):
 
     @classmethod
     def load_model(cls, args_path: Path, weights_path: Path) -> TypeCondVAE:
-        # with open(args_path, "rb") as file:
-        #     args = pickle.load(file)
         args = load_args(args_path)
         dec_emb_dim = None if "dec_emb_dim" not in args.keys() else args["dec_emb_dim"]
 
@@ -293,6 +334,9 @@ class CondVAE(VAEBase, T2BGenInterface):
         return model
 
     def sample(self, y: torch.Tensor) -> torch.Tensor:
+        """Generate an image from the latent space distribution.""" 
+        assert len(y.size()) == 1
+
         z = torch.randn(y.size(0), self.latent_dim).to(y.device)
         return self.decoder(z, y)
     
