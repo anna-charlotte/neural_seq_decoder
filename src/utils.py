@@ -14,7 +14,7 @@ def set_seeds(seed: int):
 
 
 def load_args(args_path: Path) -> dict:
-    if args_path.endswith(".json"):
+    if str(args_path).endswith(".json"):
         with open(args_path, "rb") as file:
             args = json.load(file)
     else:
@@ -30,3 +30,18 @@ def load_pkl(pkl_path: Path):
     with open(pkl_path, "rb") as handle:
         data = pickle.load(handle)
     return data
+
+
+def dump_args(args: dict, out_file: Path) -> None:
+    if str(out_file).endswith(".json"):
+        with open(out_file, "w") as file:
+            json.dump(args, file, indent=4)
+    else:
+        with open(out_file, "wb") as file:
+            pickle.dump(args, file)
+
+
+def dump_pkl(args: dict, out_file: Path) -> None:
+    with open(out_file, "wb") as file:
+        pickle.dump(args, file)
+    
