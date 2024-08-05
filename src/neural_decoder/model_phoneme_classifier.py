@@ -49,6 +49,8 @@ class PhonemeClassifier(nn.Module):
     def __init__(self, n_classes: int, input_shape: Tuple[int, ...]):
         super(PhonemeClassifier, self).__init__()
         self.input_shape = input_shape
+        out_dim = 1 if n_classes == 2 else n_classes
+
         self.model = nn.Sequential(
             nn.Conv2d(in_channels=128, out_channels=64, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(64),
@@ -66,7 +68,7 @@ class PhonemeClassifier(nn.Module):
             nn.Linear(256 * 1 * 1, 512),
             nn.BatchNorm1d(512),
             nn.ReLU(),
-            nn.Linear(512, n_classes),
+            nn.Linear(512, out_dim),
         )
 
     def forward(self, x):
@@ -124,6 +126,8 @@ def train_phoneme_classifier(
     all_test_f1_micro = []
     all_test_balanced_acc = []
     time_steps = []
+    binary = True if n_classes == 2 else False
+
 
     for i_epoch in range(n_epochs):
         for j_batch, data in enumerate(train_dl):
@@ -135,8 +139,13 @@ def train_phoneme_classifier(
             X, y, logits, dayIdx = (X.to(device), y.to(device), logits.to(device), dayIdx.to(device))
 
             pred = model(X)
+            
+            if binary:
+                y = y.view(y.size(0), 1)
+                loss = criterion(pred, y.float())
+            else:
+                loss = criterion(pred, y.long())
 
-            loss = criterion(pred, y.long())
             loss.backward()
             optimizer.step()
             all_train_losses.append(loss.item())
@@ -146,7 +155,6 @@ def train_phoneme_classifier(
                 print("\nEval ...")
 
                 for k_test_dl, test_dl in enumerate(test_dls):
-                    print(f"k_test_dl = {k_test_dl}")
                     model.eval()
                     test_loss = 0.0
                     correct = 0
@@ -171,12 +179,16 @@ def train_phoneme_classifier(
                             )
 
                             pred = model(X)
+                            pred_labels = torch.argmax(pred, dim=1)
                             probs = F.softmax(pred, dim=1)
-
-                            loss = criterion(pred, y.long())
+            
+                            if binary:
+                                y = y.view(y.size(0), 1)
+                                loss = criterion(pred, y.float())
+                            else:
+                                loss = criterion(pred, y.long())
                             test_loss += loss.item()
 
-                            pred_labels = torch.argmax(pred, dim=1)
                             total += pred_labels.size(0)
                             correct += (pred_labels == y).sum().item()
 
@@ -206,13 +218,13 @@ def train_phoneme_classifier(
 
                     # Calculate the AUROC
                     test_auroc_macro = roc_auc_score(
-                        all_labels_np, all_preds_np, multi_class="ovr", average="macro"
+                        all_labels_np, all_preds_np_argmax, multi_class="ovr", average="macro"
                     )
                     if k_test_dl == 0:
                         all_test_aurocs_macro.append(test_auroc_macro)
 
                     test_auroc_micro = roc_auc_score(
-                        all_labels_np, all_preds_np, multi_class="ovr", average="micro"
+                        all_labels_np, all_preds_np_argmax, multi_class="ovr", average="micro"
                     )
                     if k_test_dl == 0:
                         all_test_aurocs_micro.append(test_auroc_micro)
