@@ -199,13 +199,14 @@ def plot_means_and_stds(means: np.ndarray, stds: np.ndarray, phoneme: str, out_d
     # FIRST PLOT
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
 
+    n_dim = len(means)
     ax1.hist(means, bins=20, color="blue", edgecolor="black")
-    ax1.set_title("Histogram of Mean Values (256 dim)")
+    ax1.set_title(f"Histogram of Mean Values ({n_dim} dim)")
     ax1.set_xlabel("Mean value of each channel in the latent space over all encodings")
     ax1.set_ylabel("Frequency")
 
     ax2.hist(stds, bins=20, color="green", edgecolor="black")
-    ax2.set_title("Histogram of Standard Deviation (STD) Values (256 dim))")
+    ax2.set_title(f"Histogram of Standard Deviation (STD) Values ({n_dim} dim))")
     ax2.set_xlabel("STD value of each channel in the latent space over all encodings")
     ax2.set_ylabel("Frequency")
 
@@ -220,7 +221,7 @@ def plot_means_and_stds(means: np.ndarray, stds: np.ndarray, phoneme: str, out_d
     print(f"Saved plot to: {out_file}")
 
     # SECOND PLOT
-    channels = list(range(1, len(means) + 1))  # channels from 1 to 256
+    channels = list(range(1, n_dim + 1))
 
     plt.figure(figsize=(12, 6))
     plt.scatter(channels, means, color="blue", label="Mean Values", marker="x")
