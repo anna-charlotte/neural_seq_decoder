@@ -28,5 +28,5 @@ class VAEBase(ABC, nn.Module):
         pass
 
     def save_state_dict(self, path: str) -> None:
-        print(f"Store model state dict to: {path}")
+        # print(f"Store model state dict to: {path}")
         torch.save(self.state_dict(), path)
