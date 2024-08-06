@@ -223,11 +223,13 @@ class FiLM(nn.Module):
 
 
 class Decoder_128_8_8(nn.Module):
-    def __init__(self, latent_dim: int, classes: Optional[list] = None, dec_emb_dim: int = None, conditioning: Literal["concat", "film"] = None, n_layers_film: int = None):
+    def __init__(self, latent_dim: int, classes: Optional[list] = None, dec_emb_dim: int = None, conditioning: Literal["concat", "film"] = None, n_layers_film: int = None, dec_hidden_dim: int = 512):
         super(Decoder_128_8_8, self).__init__()
         self.classes = classes
         self.dec_emb_dim = len(self.classes) if dec_emb_dim is None else dec_emb_dim
+        self.dec_hidden_dim = dec_hidden_dim
         self.conditioning = conditioning
+        print(f"self.conditioning = {self.conditioning}")
 
         input_dim = latent_dim
         if classes is not None and conditioning == "concat":
@@ -235,12 +237,11 @@ class Decoder_128_8_8(nn.Module):
             input_dim += self.dec_emb_dim
         if conditioning == "film":
             self.film = FiLM(conditioning_dim=len(classes), in_features=latent_dim, n_layers=n_layers_film)
-            print(f"self.film = {self.film}")
 
-        self.fc = nn.Sequential(nn.Linear(input_dim, 512), nn.ReLU(inplace=True))  # -> (512)
+        self.fc = nn.Sequential(nn.Linear(input_dim, dec_hidden_dim), nn.ReLU(inplace=True))  # -> (512)
         self.model = nn.Sequential(
             # input is (512) x 1 x 1
-            nn.ConvTranspose2d(512, 256, 3, 2, 1, 1, bias=False),  # -> (256) x 2 x 2
+            nn.ConvTranspose2d(dec_hidden_dim, 256, 3, 2, 1, 1, bias=False),  # -> (256) x 2 x 2
             nn.BatchNorm2d(256),
             nn.ReLU(inplace=True),
             nn.ConvTranspose2d(256, 128, 3, 2, 1, 1, bias=False),  # -> (128) x 4 x 4
@@ -261,22 +262,25 @@ class Decoder_128_8_8(nn.Module):
             indices.append(index)
         return torch.tensor(indices, dtype=torch.long, device=labels.device).view(labels.size())
 
-    def forward(self, z, labels):
-        """Forward pass. Label should be  not the index but the original phoneme class, such as in range(1, 40)"""
-        # TODO handle the unconditional case
-        assert z.size(0) == labels.size(0)
-
-        y_indices = self._label_to_indices(labels, self.classes)
+    def forward(self, z: torch.Tensor, labels: Optional[torch.Tensor] = None):
+        """Forward pass. Label should be not the index but the original phoneme class, such as in range(1, 40)"""
         
-        if self.conditioning == "concat":
-            y_emb = self.embedding(y_indices)
-            h = torch.concat((z, y_emb), dim=1)
-        elif self.conditioning == "film":
-            y_one_hot = F.one_hot(y_indices, num_classes=len(self.classes)).float()
-            h = self.film(z, y_one_hot)
+        if self.conditioning is not None:
+            assert z.size(0) == labels.size(0)
+
+            y_indices = self._label_to_indices(labels, self.classes)
+            
+            if self.conditioning == "concat":
+                y_emb = self.embedding(y_indices)
+                h = torch.concat((z, y_emb), dim=1)
+            elif self.conditioning == "film":
+                y_one_hot = F.one_hot(y_indices, num_classes=len(self.classes)).float()
+                h = self.film(z, y_one_hot)
+        else:
+            h = z
 
         h = self.fc(h)
-        h = h.view(h.size(0), 512, 1, 1)
+        h = h.view(h.size(0), self.dec_hidden_dim, 1, 1)
         h = self.model(h)
         h = h.view(-1, 1, 256, 32)
         return h
@@ -284,7 +288,7 @@ class Decoder_128_8_8(nn.Module):
 
 class CondVAE(VAEBase, T2BGenInterface):
     def __init__(
-        self, latent_dim: int, input_shape: Tuple[int, int, int], classes: list, conditioning: Literal["concat", "film"], device: str = "cpu", dec_emb_dim: int = None, n_layers_film: int = None
+        self, latent_dim: int, input_shape: Tuple[int, int, int], classes: list, conditioning: Literal["concat", "film"], device: str = "cpu", dec_emb_dim: int = None, n_layers_film: int = None, dec_hidden_dim: int = 512
     ):
         super(CondVAE, self).__init__(latent_dim, input_shape, classes, device)
         input_shape = tuple(input_shape)
@@ -299,7 +303,7 @@ class CondVAE(VAEBase, T2BGenInterface):
             self.decoder = Decoder_4_64_32(latent_dim).to(device)
         elif input_shape == (128, 8, 8):
             self.encoder = Encoder_128_8_8(latent_dim).to(device)
-            self.decoder = Decoder_128_8_8(latent_dim, classes, dec_emb_dim, conditioning, n_layers_film).to(device)
+            self.decoder = Decoder_128_8_8(latent_dim, classes, dec_emb_dim, conditioning, n_layers_film, dec_hidden_dim).to(device)
         else:
             raise ValueError(
                 f"Invalid input shape ({input_shape}), we don't have a VAE version for this yet."
@@ -340,7 +344,7 @@ class CondVAE(VAEBase, T2BGenInterface):
         z = torch.randn(y.size(0), self.latent_dim).to(y.device)
         return self.decoder(z, y)
     
-    def create_synthetic_phoneme_dataset(self, n_samples, neural_window_shape: Tuple[int, int, int]):
+    def create_synthetic_phoneme_dataset(self, n_samples, neural_window_shape: Tuple[int, int, int]) -> SyntheticPhonemeDataset:
         
         assert isinstance(neural_window_shape, tuple)
 
@@ -364,8 +368,8 @@ class CondVAE(VAEBase, T2BGenInterface):
 
 
 class VAE(VAEBase, T2BGenInterface):
-    def __init__(self, latent_dim: int, input_shape: Tuple[int, int, int], device: str = "cpu"):
-        super(VAE, self).__init__(latent_dim, input_shape, [], device)
+    def __init__(self, latent_dim: int, input_shape: Tuple[int, int, int], device: str = "cpu", classes: List[int] = None, dec_hidden_dim: int = 512):
+        super(VAE, self).__init__(latent_dim, input_shape, classes, device)
 
         if input_shape == (1, 256, 32):
             self.encoder = Encoder_1_256_32(latent_dim).to(device)
@@ -375,7 +379,7 @@ class VAE(VAEBase, T2BGenInterface):
             self.decoder = Decoder_4_64_32(latent_dim).to(device)
         elif input_shape == (128, 8, 8):
             self.encoder = Encoder_128_8_8(latent_dim).to(device)
-            self.decoder = Decoder_128_8_8(latent_dim).to(device)
+            self.decoder = Decoder_128_8_8(latent_dim, classes=classes, conditioning=None, dec_hidden_dim=dec_hidden_dim).to(device)
         else:
             raise ValueError(
                 f"Invalid input shape ({input_shape}), we don't have a VAE version for this yet."
@@ -398,21 +402,37 @@ class VAE(VAEBase, T2BGenInterface):
         z = self.reparameterize(mu, logvar)
         recon_x = self.decode(z)
         return recon_x, mu, logvar
+    
+    def sample(self, n_samples: int) -> torch.Tensor:
+        """Generate an image from the latent space distribution.""" 
+        z = torch.randn(n_samples, self.latent_dim).to(self.device)
+        return self.decoder(z)
 
     @classmethod
     def load_model(cls, args_path: Path, weights_path: Path) -> TypeVAE:
-        # with open(args_path, "rb") as file:
-        #     args = pickle.load(file)
         args = load_args(args_path)
-
-        model = cls(latent_dim=args["latent_dim"], input_shape=args["input_shape"], device=args["device"])
+        model = cls(latent_dim=args["latent_dim"], input_shape=args["input_shape"], device=args["device"], classes=args["phoneme_cls"], dec_hidden_dim=args["dec_hidden_dim"])
         model.load_state_dict(torch.load(weights_path))
 
         return model
 
     def create_synthetic_phoneme_dataset(self, n_samples, neural_window_shape: Tuple[int, int, int]):
-        raise NotImplementedError
+        assert isinstance(neural_window_shape, tuple)
 
+        classes = self.classes
+        assert isinstance(classes, list)
+        assert len(classes) == 1
+
+        label = torch.tensor([classes[-1]]).to(self.device)
+        neural_windows = []
+        phoneme_labels = []
+
+        for _ in range(n_samples):
+            neural_window = self.sample(n_samples=1)
+            neural_windows.append(neural_window.to("cpu"))
+            phoneme_labels.append(label.to("cpu"))
+
+        return SyntheticPhonemeDataset(neural_windows, phoneme_labels)
 
 
 def logvar_to_std(logvar: torch.Tensor) -> torch.Tensor:
