@@ -248,38 +248,42 @@ if __name__ == "__main__":
     for lr in [1e-3]:
         for batch_size in [64, 128]:
             for cls_weights in ["sqrt", None]:
-                    now = datetime.now()
-                    timestamp = now.strftime("%Y%m%d_%H%M%S")
+                now = datetime.now()
+                timestamp = now.strftime("%Y%m%d_%H%M%S")
 
-                    args["output_dir"] = (
-                        f"/data/engs-pnpl/lina4471/willett2023/phoneme_classifier/__PhonemeClassifier_bs_{batch_size}__lr_{lr}__cls_ws_{cls_weights}__train_on_only_synthetic_{timestamp}"
-                    )
-                    # args["generative_model_args_path"] = (
-                    #     "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_unconditional_20240801_082756/args.json"
-                    # )
-                    args["generative_model_weights_path"] = [
-                        "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_conditional_20240807_103730/modelWeights",  # cls 3
-                        # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_151151/modelWeights",  # cls 3
-                        "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_conditional_20240807_103916/modelWeights",  # cls 31
-                        # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_151204/modelWeights",  # cls 31
-                    ]
-                    args["generative_model_n_samples_train"] = 20_000
-                    args["generative_model_n_samples_val"] = 2_000
-                    print(args["generative_model_weights_path"])
+                args["output_dir"] = (
+                    f"/data/engs-pnpl/lina4471/willett2023/phoneme_classifier/__PhonemeClassifier_bs_{batch_size}__lr_{lr}__cls_ws_{cls_weights}__train_on_only_synthetic_{timestamp}"
+                )
+                # args["generative_model_args_path"] = (
+                #     "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_unconditional_20240801_082756/args.json"
+                # )
+                args["generative_model_weights_path"] = [
+                    # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_conditional_20240807_103730/modelWeights",  # cls 3
+                    # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_conditional_20240807_103916/modelWeights",  # cls 31
 
-                    args["input_shape"] = (128, 8, 8)
-                    args["lr"] = lr
-                    args["batch_size"] = batch_size
-                    args["class_weights"] = cls_weights
-                    args["transform"] = "softsign"
-                    args["patience"] = 30
-                    args["gaussian_smoothing_kernel_size"] = 20
-                    args["gaussian_smoothing_sigma"] = 2.0
-                    args["phoneme_cls"] = [3, 31]  # list(range(1, 40))
-                    args["correctness_value"] = ["C"]
+                    # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_151151/modelWeights",  # cls 3
+                    # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_151204/modelWeights",  # cls 31
+                    
+                    f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_182747/modelWeights_epoch_120",  # cls 3
+                    f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_180210/modelWeights_epoch_120",  # cls 31
+                ]
+                args["generative_model_n_samples_train"] = 20_000
+                args["generative_model_n_samples_val"] = 2_000
+                print(args["generative_model_weights_path"])
 
-                    print(
-                        "\nTrain phoeneme classifier on SYNTHETIC data. Test on SYNTHETIC as well as REAL data."
-                    )
+                args["input_shape"] = (128, 8, 8)
+                args["lr"] = lr
+                args["batch_size"] = batch_size
+                args["class_weights"] = cls_weights
+                args["transform"] = "softsign"
+                args["patience"] = 20
+                args["gaussian_smoothing_kernel_size"] = 20
+                args["gaussian_smoothing_sigma"] = 2.0
+                args["phoneme_cls"] = [3, 31]  # list(range(1, 40))
+                args["correctness_value"] = ["C"]
 
-                    main(args)
+                print(
+                    "\nTrain phoeneme classifier on SYNTHETIC data. Test on SYNTHETIC as well as REAL data."
+                )
+
+                main(args)
