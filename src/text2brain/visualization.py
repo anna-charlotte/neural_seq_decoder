@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 import torch
+from sklearn.manifold import TSNE
 
 from neural_decoder.neural_decoder_trainer import get_dataset_loaders
 from neural_decoder.phoneme_utils import PHONE_DEF, ROOT_DIR
@@ -190,6 +191,20 @@ def plot_phoneme_distribution(
     print(f"Save distribution plot to: {out_file}")
     plt.savefig(out_file)
 
+
+def plot_tsne(vectors: List[np.ndarray], title: str, out_file):
+    # Assuming `latent_vectors` is a numpy array of shape (num_samples, latent_dim)
+
+    stacked_vectors = np.concatenate(vectors, axis=0)
+    tsne = TSNE(n_components=2)
+    latent_2d = tsne.fit_transform(stacked_vectors)
+
+    plt.scatter(latent_2d[:, 0], latent_2d[:, 1], alpha=0.5)
+    plt.title(title)
+    plt.xlabel('Dimension 1')
+    plt.ylabel('Dimension 2')
+    print(f"Save tsne plot to: {out_file}")
+    plt.savefig(out_file)
 
 
 def plot_means_and_stds(means: np.ndarray, stds: np.ndarray, phoneme: str, out_dir: Path = None):

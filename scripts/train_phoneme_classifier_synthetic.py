@@ -16,7 +16,7 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 
 from data.augmentations import GaussianSmoothing
-from data.dataset import PhonemeDataset
+from data.dataset import PhonemeDataset, SyntheticPhonemeDataset
 from neural_decoder.model_phoneme_classifier import (
     PhonemeClassifier,
     train_phoneme_classifier,
@@ -32,6 +32,47 @@ from neural_decoder.transforms import (
 from text2brain.models.model_interface_load import load_t2b_gen_model
 from text2brain.models.phoneme_image_gan import _get_indices_in_classes
 from utils import load_pkl, set_seeds
+
+
+def plot_vae_decoder_weights(vae) -> None:
+    fc_weights = vae.decoder.fc[0].weight.data.detach().cpu().numpy()
+
+    conv_layers = [layer for layer in vae.decoder.model if isinstance(layer, nn.ConvTranspose2d)]
+    conv_weights = [layer.weight.data.cpu().numpy() for layer in conv_layers]
+
+    # Plotting the heatmaps of the weights
+    plt.figure(figsize=(15, 5))
+
+    # Fully connected layer heatmap
+    plt.subplot(1, len(conv_weights) + 1, 1)
+
+    sns.heatmap(fc_weights, cmap='viridis')
+    plt.title('Fully Connected Layer Weights')
+    fc_mean = np.mean(fc_weights[:, :256])
+    fc_max = np.amax(fc_weights[:, :256])
+    fc_min = np.amin(fc_weights[:, :256])
+    print(f"fc_mean = {fc_mean}")
+    print(f"fc_max = {fc_max}")
+    print(f"fc_min = {fc_min}")
+    
+    # plt.subplot(1, len(conv_weights) + 2, 2)
+    # sns.heatmap(fc_weights[:, 256:], cmap='viridis')
+    # plt.title('Fully Connected Layer Weights (label embedding)')
+    y_dec_mean = np.mean(fc_weights[:, 256:])
+    y_dec_max = np.amax(fc_weights[:, 256:])
+    y_dec_min = np.amin(fc_weights[:, 256:])
+    print(f"y_dec_mean = {y_dec_mean}")
+    print(f"y_dec_max = {y_dec_max}")
+    print(f"y_dec_min = {y_dec_min}")
+
+    # Convolutional layers heatmaps
+    for i, weight_matrix in enumerate(conv_weights):
+        plt.subplot(1, len(conv_weights) + 1, i + 2)
+        sns.heatmap(weight_matrix.reshape(weight_matrix.shape[0], -1), cmap='viridis')
+        plt.title(f'ConvTranspose2d Layer {i + 1} Weights')
+
+    plt.tight_layout()
+    plt.savefig(ROOT_DIR / "plots" / "model_weights.png")
 
 
 def get_label_distribution(dataset):
@@ -78,75 +119,28 @@ def main(args: dict) -> None:
             ]
         )
 
-    gen_model = load_t2b_gen_model(
-        args_path=args["generative_model_args_path"],
-        weights_path=args["generative_model_weights_path"],
-    )
-    print(f"gen_model.__class__.__name__ = {gen_model.__class__.__name__}")
+    # load generative models
+    if isinstance(args["generative_model_weights_path"], list):
+        gen_models = []
+        for weights_path in args["generative_model_weights_path"]:
+            model = load_t2b_gen_model(weights_path=weights_path)
+            gen_models.append(model)
+    else:
+        gen_models = [load_t2b_gen_model(weights_path=args["generative_model_weights_path"])]
+        
+    # create synthetic training set
+    datasets = []
+    n_samples = int(args["generative_model_n_samples_train"] / len(gen_models))
+    for model in gen_models:
+        ds = model.create_synthetic_phoneme_dataset(
+            n_samples=n_samples,
+            neural_window_shape=(1, 256, 32),
+        )
+        datasets.append(ds)
 
-    # weights = [layer.get_weights()[0] for layer in gen_model.decoder.layers if len(layer.get_weights()) > 0]
-
-    fc_weights = gen_model.decoder.fc[0].weight.data.detach().cpu().numpy()
-    print(f"fc_weights.shape = {fc_weights.shape}")
-    y_weights = fc_weights[:, 256:]
-    print(f"y_weights.shape = {y_weights.shape}")
-
-    conv_layers = [layer for layer in gen_model.decoder.model if isinstance(layer, nn.ConvTranspose2d)]
-    conv_weights = [layer.weight.data.cpu().numpy() for layer in conv_layers]
-
-    # Plotting the heatmaps of the weights
-    plt.figure(figsize=(15, 5))
-
-    # Fully connected layer heatmap
-    plt.subplot(1, len(conv_weights) + 1, 1)
-
-    sns.heatmap(fc_weights, cmap='viridis')
-    plt.title('Fully Connected Layer Weights')
-    fc_mean = np.mean(fc_weights[:, :256])
-    fc_max = np.amax(fc_weights[:, :256])
-    fc_min = np.amin(fc_weights[:, :256])
-    print(f"fc_mean = {fc_mean}")
-    print(f"fc_max = {fc_max}")
-    print(f"fc_min = {fc_min}")
-    
-    # plt.subplot(1, len(conv_weights) + 2, 2)
-    # sns.heatmap(fc_weights[:, 256:], cmap='viridis')
-    # plt.title('Fully Connected Layer Weights (label embedding)')
-    y_dec_mean = np.mean(fc_weights[:, 256:])
-    y_dec_max = np.amax(fc_weights[:, 256:])
-    y_dec_min = np.amin(fc_weights[:, 256:])
-    print(f"y_dec_mean = {y_dec_mean}")
-    print(f"y_dec_max = {y_dec_max}")
-    print(f"y_dec_min = {y_dec_min}")
-
-    # Convolutional layers heatmaps
-    for i, weight_matrix in enumerate(conv_weights):
-        plt.subplot(1, len(conv_weights) + 1, i + 2)
-        sns.heatmap(weight_matrix.reshape(weight_matrix.shape[0], -1), cmap='viridis')
-        plt.title(f'ConvTranspose2d Layer {i + 1} Weights')
-
-    plt.tight_layout()
-    plt.savefig(ROOT_DIR / "plots" / "model_weights.png")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    # synthetic training set
-    train_ds_syn = gen_model.create_synthetic_phoneme_dataset(
-        n_samples=args["generative_model_n_samples"],
-        neural_window_shape=(1, 32, 256),
-    )
+    train_ds_syn = SyntheticPhonemeDataset.combine_datasets(datasets=datasets)
+    assert len(train_ds_syn) == args["generative_model_n_samples_train"]
+    assert train_ds_syn.classes == phoneme_classes
     train_dl_syn = DataLoader(
         train_ds_syn,
         batch_size=batch_size,
@@ -156,13 +150,21 @@ def main(args: dict) -> None:
         collate_fn=None,
     )
 
-    # synthetic test set
-    test_ds_syn = gen_model.create_synthetic_phoneme_dataset(
-        n_samples=4_000,
-        neural_window_shape=(1, 32, 256),
-    )
-    test_dl_syn = DataLoader(
-        test_ds_syn,
+    # create synthetic val set
+    datasets = []
+    n_samples = int(args["generative_model_n_samples_val"] / len(gen_models))
+    for model in gen_models:
+        ds = model.create_synthetic_phoneme_dataset(
+            n_samples=n_samples,
+            neural_window_shape=(1, 256, 32),
+        )
+        datasets.append(ds)
+
+    val_ds_syn = SyntheticPhonemeDataset.combine_datasets(datasets=datasets)
+    assert len(val_ds_syn) == args["generative_model_n_samples_val"]
+    assert val_ds_syn.classes == phoneme_classes
+    val_dl_syn = DataLoader(
+        val_ds_syn,
         batch_size=1,
         shuffle=False,
         num_workers=0,
@@ -170,12 +172,9 @@ def main(args: dict) -> None:
         collate_fn=None,
     )
 
-    # real val set
-    val_file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_VAL_SPLIT.pkl"
-    val_data = load_pkl(val_file)
-
+    # load real val set
     val_dl_real = get_data_loader(
-        data=val_data,
+        data=load_pkl(args["val_set_path"]),
         batch_size=1,
         shuffle=False,
         collate_fn=None,
@@ -185,12 +184,9 @@ def main(args: dict) -> None:
         transform=transform,
     )
 
-    # real test set
-    test_file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_TEST_SPLIT.pkl"
-    test_data = load_pkl(test_file)
-
+    # load real test set
     test_dl_real = get_data_loader(
-        data=test_data,
+        data=load_pkl(args["test_set_path"]),
         batch_size=1,
         shuffle=False,
         collate_fn=None,
@@ -217,11 +213,16 @@ def main(args: dict) -> None:
         pickle.dump(args, file)
     with open(out_dir / "args.json", "w") as file:
         json.dump(args, file, indent=4)
+    
+    print(f"len(train_dl_syn.dataset) = {len(train_dl_syn.dataset)}")
+    print(f"len(val_dl_syn.dataset) = {len(val_dl_syn.dataset)}")
+    print(f"len(val_dl_real.dataset) = {len(val_dl_real.dataset)}")
+    print(f"len(test_dl_real.dataset) = {len(test_dl_real.dataset)}")
 
     output = train_phoneme_classifier(
         model=model,
         train_dl=train_dl_syn,
-        test_dls=[test_dl_syn, test_dl_real],
+        test_dls=[val_dl_syn, val_dl_real],
         n_classes=n_classes,
         optimizer=optimizer,
         criterion=criterion,
@@ -239,7 +240,7 @@ if __name__ == "__main__":
     args["seed"] = 0
     args["device"] = "cuda" if torch.cuda.is_available() else "cpu"
     data_dir = Path("/data/engs-pnpl/lina4471/willett2023/competitionData")
-    args["train_set_path"] = str(data_dir / "rnn_train_set_with_logits.pkl")
+    # args["train_set_path"] = str(data_dir / "rnn_train_set_with_logits.pkl")
     args["val_set_path"] = str(data_dir / "rnn_test_set_with_logits_VAL_SPLIT.pkl")
     args["test_set_path"] = str(data_dir / "rnn_test_set_with_logits_TEST_SPLIT.pkl")
     args["n_epochs"] = 10
@@ -251,15 +252,19 @@ if __name__ == "__main__":
                     timestamp = now.strftime("%Y%m%d_%H%M%S")
 
                     args["output_dir"] = (
-                        f"/data/engs-pnpl/lina4471/willett2023/phoneme_classifier/PhonemeClassifier_bs_{batch_size}__lr_{lr}__cls_ws_{cls_weights}__train_on_only_synthetic_{timestamp}"
+                        f"/data/engs-pnpl/lina4471/willett2023/phoneme_classifier/__PhonemeClassifier_bs_{batch_size}__lr_{lr}__cls_ws_{cls_weights}__train_on_only_synthetic_{timestamp}"
                     )
-                    args["generative_model_args_path"] = (
-                        "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_unconditional_20240801_082756/args.json"
-                    )
-                    args["generative_model_weights_path"] = (
-                        "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_unconditional_20240801_082756/modelWeights"
-                    )
-                    args["generative_model_n_samples"] = 50_000
+                    # args["generative_model_args_path"] = (
+                    #     "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_unconditional_20240801_082756/args.json"
+                    # )
+                    args["generative_model_weights_path"] = [
+                        "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_conditional_20240807_103730/modelWeights",  # cls 3
+                        # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_151151/modelWeights",  # cls 3
+                        "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_conditional_20240807_103916/modelWeights",  # cls 31
+                        # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_151204/modelWeights",  # cls 31
+                    ]
+                    args["generative_model_n_samples_train"] = 20_000
+                    args["generative_model_n_samples_val"] = 2_000
                     print(args["generative_model_weights_path"])
 
                     args["input_shape"] = (128, 8, 8)
@@ -267,7 +272,7 @@ if __name__ == "__main__":
                     args["batch_size"] = batch_size
                     args["class_weights"] = cls_weights
                     args["transform"] = "softsign"
-                    args["patience"] = 20
+                    args["patience"] = 30
                     args["gaussian_smoothing_kernel_size"] = 20
                     args["gaussian_smoothing_sigma"] = 2.0
                     args["phoneme_cls"] = [3, 31]  # list(range(1, 40))

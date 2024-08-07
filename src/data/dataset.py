@@ -1,7 +1,7 @@
 import pickle
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List
 
 import numpy as np
 import torch
@@ -189,6 +189,7 @@ class SyntheticPhonemeDataset(BaseDataset):
     ) -> None:
         self.neural_windows = neural_windows
         self.phonemes = phoneme_labels
+        self.classes = torch.unique(torch.cat(phoneme_labels)).tolist()
 
         super().__init__([{}], transform)
 
@@ -216,6 +217,17 @@ class SyntheticPhonemeDataset(BaseDataset):
 
     def __len__(self) -> int:
         return self.n_trials
+
+    @classmethod
+    def combine_datasets(cls, datasets: List['SyntheticPhonemeDataset']) -> 'SyntheticPhonemeDataset':
+        combined_neural_windows = []
+        combined_phonemes = []
+
+        for dataset in datasets:
+            combined_neural_windows.extend(dataset.neural_windows)
+            combined_phonemes.extend(dataset.phonemes)
+        
+        return cls(combined_neural_windows, combined_phonemes)
 
 
 def save_averaged_windows_for_all_classes(train_file: Path, reorder_channels: bool, out_file: Path):

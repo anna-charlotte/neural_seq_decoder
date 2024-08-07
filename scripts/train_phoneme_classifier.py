@@ -174,7 +174,7 @@ def main(args: dict) -> None:
 
         synthetic_ds = gen_model.create_synthetic_phoneme_dataset(
             n_samples=args["generative_model_n_samples"],
-            neural_window_shape=(32, 256),
+            neural_window_shape=(1, 32, 256),
         )
         synthetic_dl = DataLoader(
             synthetic_ds,

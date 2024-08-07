@@ -13,12 +13,32 @@ import tqdm
 from torch.utils.data import DataLoader
 
 from data.dataset import SyntheticPhonemeDataset
+from neural_decoder.phoneme_utils import ROOT_DIR
 from text2brain.models.model_interface import T2BGenInterface
 from text2brain.models.vae_interface import VAEBase
+from text2brain.visualization import plot_single_image
 from utils import load_args
 
 TypeCondVAE = TypeVar("TypeCondVAE", bound="CondVAE")
 TypeVAE = TypeVar("TypeVAE", bound="VAE")
+
+
+class DecoderInterface(nn.Module):
+    def __init__(self, latent_dim: int, classes: Optional[list] = None, dec_emb_dim: int = None, conditioning: Literal["concat", "film"] = None, n_layers_film: int = None, dec_hidden_dim: int = 512):
+        super(DecoderInterface, self).__init__()
+        self.classes = classes if classes is not None else []
+        self.dec_emb_dim = len(self.classes) if dec_emb_dim is None else dec_emb_dim
+        self.dec_hidden_dim = dec_hidden_dim
+        self.conditioning = conditioning
+
+    def _label_to_indices(self, labels, classes: List[int]):
+        indices = []
+        classes_torch = torch.tensor(classes).to(labels.device)
+        for label in labels:
+            index = (classes_torch == label).nonzero(as_tuple=True)[0].item()
+            indices.append(index)
+        return torch.tensor(indices, dtype=torch.long, device=labels.device).view(labels.size())
+
 
 
 # convolutions only over the channels. Input size (1, 256, 32)
@@ -52,9 +72,17 @@ class Encoder_1_256_32(nn.Module):
         return mu, logvar
 
 
-class Decoder_1_256_32(nn.Module):
-    def __init__(self, latent_dim):
-        super(Decoder_1_256_32, self).__init__()
+class Decoder_1_256_32(DecoderInterface):
+    def __init__(self, latent_dim: int, classes: Optional[list] = None, dec_emb_dim: int = None, conditioning: Literal["concat", "film"] = None, n_layers_film: int = None, dec_hidden_dim: int = 512):
+        super(Decoder_1_256_32, self).__init__(latent_dim, classes, dec_emb_dim, conditioning, n_layers_film, dec_hidden_dim)
+
+        input_dim = latent_dim
+        if classes is not None and self.conditioning == "concat":
+            self.embedding = nn.Embedding(len(classes), self.dec_emb_dim)
+            input_dim += self.dec_emb_dim
+        if self.conditioning == "film":
+            self.film = FiLM(conditioning_dim=len(classes), in_features=latent_dim, n_layers=n_layers_film)
+
         self.decoder = nn.Sequential(
             nn.Linear(latent_dim, 256),
             nn.ReLU(),
@@ -83,8 +111,21 @@ class Decoder_1_256_32(nn.Module):
             nn.Tanh(),  # TODO: change to softsign
         )
 
-    def forward(self, z):
-        return self.decoder(z)
+    def forward(self, z: torch.Tensor, labels: Optional[torch.Tensor] = None):
+        if self.conditioning is not None:
+            assert z.size(0) == labels.size(0)
+            y_indices = self._label_to_indices(labels, self.classes)
+            
+            if self.conditioning == "concat":
+                y_emb = self.embedding(y_indices)
+                h = torch.concat((z, y_emb), dim=1)
+            elif self.conditioning == "film":
+                y_one_hot = F.one_hot(y_indices, num_classes=len(self.classes)).float()
+                h = self.film(z, y_one_hot)
+        else:
+            h = z
+
+        return self.decoder(h)
 
 
 class Encoder_4_64_32(nn.Module):
@@ -124,12 +165,20 @@ class Encoder_4_64_32(nn.Module):
 
 
 # Decoder for output size (4, 64, 32)
-class Decoder_4_64_32(nn.Module):
-    def __init__(self, latent_dim):
-        super(Decoder_4_64_32, self).__init__()
-        self.fc = nn.Sequential(nn.Linear(latent_dim, 512 * 2 * 1), nn.ReLU(inplace=True))
+class Decoder_4_64_32(DecoderInterface):
+    def __init__(self, latent_dim: int, classes: Optional[list] = None, dec_emb_dim: int = None, conditioning: Literal["concat", "film"] = None, n_layers_film: int = None, dec_hidden_dim: int = 512):
+        super(Decoder_4_64_32, self).__init__(latent_dim, classes, dec_emb_dim, conditioning, n_layers_film, dec_hidden_dim)
+        
+        input_dim = latent_dim
+        if classes is not None and self.conditioning == "concat":
+            self.embedding = nn.Embedding(len(classes), self.dec_emb_dim)
+            input_dim += self.dec_emb_dim
+        if self.conditioning == "film":
+            self.film = FiLM(conditioning_dim=len(classes), in_features=latent_dim, n_layers=n_layers_film)
+
+        self.fc = nn.Sequential(nn.Linear(latent_dim, dec_hidden_dim * 2 * 1), nn.ReLU(inplace=True))  #TODO why 512*2
         self.model = nn.Sequential(
-            nn.ConvTranspose2d(512, 256, 3, 2, 1, 1, bias=False),  # -> (256) x 4 x 2
+            nn.ConvTranspose2d(dec_hidden_dim, 256, 3, 2, 1, 1, bias=False),  # -> (256) x 4 x 2
             nn.BatchNorm2d(256),
             nn.ReLU(inplace=True),
             nn.ConvTranspose2d(256, 128, 3, 2, 1, 1, bias=False),  # -> (128) x 8 x 4
@@ -148,9 +197,23 @@ class Decoder_4_64_32(nn.Module):
             nn.Tanh(),  # TODO: change to softsign
         )
 
-    def forward(self, z):
-        h = self.fc(z)
-        h = h.view(h.size(0), 512, 2, 1)  # reshape to (512) x 2 x 1
+    def forward(self, z: torch.Tensor, labels: Optional[torch.Tensor] = None):
+
+        if self.conditioning is not None:
+            assert z.size(0) == labels.size(0)
+            y_indices = self._label_to_indices(labels, self.classes)
+            
+            if self.conditioning == "concat":
+                y_emb = self.embedding(y_indices)
+                h = torch.concat((z, y_emb), dim=1)
+            elif self.conditioning == "film":
+                y_one_hot = F.one_hot(y_indices, num_classes=len(self.classes)).float()
+                h = self.film(z, y_one_hot)
+        else:
+            h = z
+        
+        h = self.fc(h)
+        h = h.view(h.size(0), self.dec_hidden_dim, 2, 1)  # reshape to (dec_hidden_dim) x 2 x 1
         h = self.model(h)
         h = h.view(-1, 1, 256, 32)
         return h
@@ -160,11 +223,9 @@ class Decoder_4_64_32(nn.Module):
 class Encoder_128_8_8(nn.Module):
     def __init__(self, latent_dim: int):  # , classes: Optional[list] = None):
         super(Encoder_128_8_8, self).__init__()
-        input_dim = 128
-
 
         self.model = nn.Sequential(
-            nn.Conv2d(input_dim, 64, 3, 1, 1, bias=False),  # -> (64) x 8 x 8
+            nn.Conv2d(128, 64, 3, 1, 1, bias=False),  # -> (64) x 8 x 8
             nn.LeakyReLU(0.2, inplace=True),
             nn.Conv2d(64, 128, 3, 2, 1, bias=False),  # -> (128) x 4 x 4
             nn.BatchNorm2d(128),
@@ -187,6 +248,56 @@ class Encoder_128_8_8(nn.Module):
         mu = self.fc_mu(h)
         logvar = self.fc_logvar(h)
         return mu, logvar
+
+    
+class Decoder_128_8_8(DecoderInterface):
+    def __init__(self, latent_dim: int, classes: Optional[list] = None, dec_emb_dim: int = None, conditioning: Literal["concat", "film"] = None, n_layers_film: int = None, dec_hidden_dim: int = 512):
+        super(Decoder_128_8_8, self).__init__(latent_dim, classes, dec_emb_dim, conditioning, n_layers_film, dec_hidden_dim)
+
+        input_dim = latent_dim
+        if classes is not None and conditioning == "concat":
+            self.embedding = nn.Embedding(len(classes), self.dec_emb_dim)
+            input_dim += self.dec_emb_dim
+        if conditioning == "film":
+            self.film = FiLM(conditioning_dim=len(classes), in_features=latent_dim, n_layers=n_layers_film)
+
+        self.fc = nn.Sequential(nn.Linear(input_dim, dec_hidden_dim), nn.LeakyReLU(0.2, inplace=True))  # -> (512)
+        self.model = nn.Sequential(
+            # input is (512) x 1 x 1
+            nn.ConvTranspose2d(dec_hidden_dim, 256, 3, 2, 1, 1, bias=False),  # -> (256) x 2 x 2
+            nn.BatchNorm2d(256),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.ConvTranspose2d(256, 128, 3, 2, 1, 1, bias=False),  # -> (128) x 4 x 4
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.ConvTranspose2d(128, 64, 3, 2, 1, 1, bias=False),  # -> (64) x 8 x 8
+            nn.BatchNorm2d(64),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.ConvTranspose2d(64, 128, 3, 1, 1, bias=False),  # -> (output_channels) x 8 x 8
+            nn.Tanh(),  # TODO: change to softsign
+        )
+
+    def forward(self, z: torch.Tensor, labels: Optional[torch.Tensor] = None):
+        """Forward pass. Label should be not the index but the original phoneme class, such as in range(1, 40)"""
+        
+        if self.conditioning is not None:
+            assert z.size(0) == labels.size(0)
+            y_indices = self._label_to_indices(labels, self.classes)
+            
+            if self.conditioning == "concat":
+                y_emb = self.embedding(y_indices)
+                h = torch.concat((z, y_emb), dim=1)
+            elif self.conditioning == "film":
+                y_one_hot = F.one_hot(y_indices, num_classes=len(self.classes)).float()
+                h = self.film(z, y_one_hot)
+        else:
+            h = z
+
+        h = self.fc(h)
+        h = h.view(h.size(0), self.dec_hidden_dim, 1, 1)
+        h = self.model(h)
+        h = h.view(-1, 1, 256, 32)
+        return h
 
 
 class FiLM(nn.Module):
@@ -222,70 +333,6 @@ class FiLM(nn.Module):
         return gamma * x + beta
 
 
-class Decoder_128_8_8(nn.Module):
-    def __init__(self, latent_dim: int, classes: Optional[list] = None, dec_emb_dim: int = None, conditioning: Literal["concat", "film"] = None, n_layers_film: int = None, dec_hidden_dim: int = 512):
-        super(Decoder_128_8_8, self).__init__()
-        self.classes = classes
-        self.dec_emb_dim = len(self.classes) if dec_emb_dim is None else dec_emb_dim
-        self.dec_hidden_dim = dec_hidden_dim
-        self.conditioning = conditioning
-        print(f"self.conditioning = {self.conditioning}")
-
-        input_dim = latent_dim
-        if classes is not None and conditioning == "concat":
-            self.embedding = nn.Embedding(len(classes), self.dec_emb_dim)
-            input_dim += self.dec_emb_dim
-        if conditioning == "film":
-            self.film = FiLM(conditioning_dim=len(classes), in_features=latent_dim, n_layers=n_layers_film)
-
-        self.fc = nn.Sequential(nn.Linear(input_dim, dec_hidden_dim), nn.ReLU(inplace=True))  # -> (512)
-        self.model = nn.Sequential(
-            # input is (512) x 1 x 1
-            nn.ConvTranspose2d(dec_hidden_dim, 256, 3, 2, 1, 1, bias=False),  # -> (256) x 2 x 2
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True),
-            nn.ConvTranspose2d(256, 128, 3, 2, 1, 1, bias=False),  # -> (128) x 4 x 4
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            nn.ConvTranspose2d(128, 64, 3, 2, 1, 1, bias=False),  # -> (64) x 8 x 8
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-            nn.ConvTranspose2d(64, 128, 3, 1, 1, bias=False),  # -> (output_channels) x 8 x 8
-            nn.Tanh(),  # TODO: change to softsign
-        )
-
-    def _label_to_indices(self, labels, classes: List[int]):
-        indices = []
-        classes_torch = torch.tensor(classes).to(labels.device)
-        for label in labels:
-            index = (classes_torch == label).nonzero(as_tuple=True)[0].item()
-            indices.append(index)
-        return torch.tensor(indices, dtype=torch.long, device=labels.device).view(labels.size())
-
-    def forward(self, z: torch.Tensor, labels: Optional[torch.Tensor] = None):
-        """Forward pass. Label should be not the index but the original phoneme class, such as in range(1, 40)"""
-        
-        if self.conditioning is not None:
-            assert z.size(0) == labels.size(0)
-
-            y_indices = self._label_to_indices(labels, self.classes)
-            
-            if self.conditioning == "concat":
-                y_emb = self.embedding(y_indices)
-                h = torch.concat((z, y_emb), dim=1)
-            elif self.conditioning == "film":
-                y_one_hot = F.one_hot(y_indices, num_classes=len(self.classes)).float()
-                h = self.film(z, y_one_hot)
-        else:
-            h = z
-
-        h = self.fc(h)
-        h = h.view(h.size(0), self.dec_hidden_dim, 1, 1)
-        h = self.model(h)
-        h = h.view(-1, 1, 256, 32)
-        return h
-
-
 class CondVAE(VAEBase, T2BGenInterface):
     def __init__(
         self, latent_dim: int, input_shape: Tuple[int, int, int], classes: list, conditioning: Literal["concat", "film"], device: str = "cpu", dec_emb_dim: int = None, n_layers_film: int = None, dec_hidden_dim: int = 512
@@ -300,7 +347,7 @@ class CondVAE(VAEBase, T2BGenInterface):
             self.decoder = Decoder_1_256_32(latent_dim).to(device)
         elif input_shape == (4, 64, 32):
             self.encoder = Encoder_4_64_32(latent_dim).to(device)
-            self.decoder = Decoder_4_64_32(latent_dim).to(device)
+            self.decoder = Decoder_4_64_32(latent_dim, classes, dec_emb_dim, conditioning, n_layers_film, dec_hidden_dim).to(device)
         elif input_shape == (128, 8, 8):
             self.encoder = Encoder_128_8_8(latent_dim).to(device)
             self.decoder = Decoder_128_8_8(latent_dim, classes, dec_emb_dim, conditioning, n_layers_film, dec_hidden_dim).to(device)
@@ -332,7 +379,16 @@ class CondVAE(VAEBase, T2BGenInterface):
         args = load_args(args_path)
         dec_emb_dim = None if "dec_emb_dim" not in args.keys() else args["dec_emb_dim"]
 
-        model = cls(latent_dim=args["latent_dim"], input_shape=args["input_shape"], classes=args["phoneme_cls"], device=args["device"], dec_emb_dim=dec_emb_dim)
+        model = cls(
+            latent_dim=args["latent_dim"], 
+            input_shape=args["input_shape"], 
+            classes=args["phoneme_cls"], 
+            conditioning=args["conditioning"], 
+            device=args["device"],
+            dec_emb_dim=dec_emb_dim,
+            n_layers_film=args["n_layers_film"], 
+            dec_hidden_dim=args["dec_hidden_dim"]
+        )
         model.load_state_dict(torch.load(weights_path))
 
         return model
@@ -370,6 +426,7 @@ class CondVAE(VAEBase, T2BGenInterface):
 class VAE(VAEBase, T2BGenInterface):
     def __init__(self, latent_dim: int, input_shape: Tuple[int, int, int], device: str = "cpu", classes: List[int] = None, dec_hidden_dim: int = 512):
         super(VAE, self).__init__(latent_dim, input_shape, classes, device)
+        input_shape = tuple(input_shape)
 
         if input_shape == (1, 256, 32):
             self.encoder = Encoder_1_256_32(latent_dim).to(device)
@@ -411,7 +468,13 @@ class VAE(VAEBase, T2BGenInterface):
     @classmethod
     def load_model(cls, args_path: Path, weights_path: Path) -> TypeVAE:
         args = load_args(args_path)
-        model = cls(latent_dim=args["latent_dim"], input_shape=args["input_shape"], device=args["device"], classes=args["phoneme_cls"], dec_hidden_dim=args["dec_hidden_dim"])
+        model = cls(
+            latent_dim=args["latent_dim"], 
+            input_shape=tuple(args["input_shape"]), 
+            device=args["device"], 
+            classes=args["phoneme_cls"], 
+            dec_hidden_dim=args["dec_hidden_dim"],
+        )
         model.load_state_dict(torch.load(weights_path))
 
         return model
@@ -427,10 +490,16 @@ class VAE(VAEBase, T2BGenInterface):
         neural_windows = []
         phoneme_labels = []
 
-        for _ in range(n_samples):
-            neural_window = self.sample(n_samples=1)
+        for i in range(n_samples):
+            neural_window = self.sample(n_samples=1).view(1, *neural_window_shape)
             neural_windows.append(neural_window.to("cpu"))
             phoneme_labels.append(label.to("cpu"))
+            # if i < 20:
+            #     plot_single_image(
+            #         X=neural_window.squeeze().cpu().detach().numpy(), 
+            #         out_file=ROOT_DIR / "evaluation" / "synthetic_phoneme_dataset" / f"img_{i}_cls_{self.classes[-1]}.png",
+            #         title=f"Synthetic phoneme image (phoneme cls {self.classes[-1]})"
+            #     )
 
         return SyntheticPhonemeDataset(neural_windows, phoneme_labels)
 

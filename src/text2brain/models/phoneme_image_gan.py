@@ -151,11 +151,9 @@ class PhonemeImageGAN(T2BGenInterface):
 
     @classmethod
     def load_model(cls, args_path: Path, weights_path: Path):
-        # with open(args_path, "rb") as file:
-        #     args = pickle.load(file)
         args = load_args(args_path)
-
         print(f"\nargs = {args}")
+
         phoneme_cls = args["phoneme_cls"]
         if "phoneme_cls" in args["phoneme_ds_filter"].keys():
             phoneme_cls = args["phoneme_ds_filter"]["phoneme_cls"]
@@ -172,8 +170,6 @@ class PhonemeImageGAN(T2BGenInterface):
             lr=1e-4 if "clip_value" not in args.keys() else args["clip_value"],
         )
         model.load_state_dict(torch.load(weights_path))
-        # with open(weights_path, "rb") as file:
-        # model.load_state_dict(torch.load(file))
 
         return model
 

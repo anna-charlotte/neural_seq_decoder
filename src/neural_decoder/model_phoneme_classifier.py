@@ -128,8 +128,10 @@ def train_phoneme_classifier(
     time_steps = []
     binary = True if n_classes == 2 else False
 
+    print(f"n_epochs = {n_epochs}")
 
     for i_epoch in range(n_epochs):
+        print(f"i_epoch = {i_epoch}")
         for j_batch, data in enumerate(train_dl):
             model.train()
             optimizer.zero_grad()
@@ -151,7 +153,7 @@ def train_phoneme_classifier(
             all_train_losses.append(loss.item())
 
             # evaluate
-            if j_batch > 0 and j_batch % 100 == 0:
+            if j_batch % 100 == 0:
                 print("\nEval ...")
 
                 for k_test_dl, test_dl in enumerate(test_dls):
@@ -179,14 +181,15 @@ def train_phoneme_classifier(
                             )
 
                             pred = model(X)
-                            pred_labels = torch.argmax(pred, dim=1)
-                            probs = F.softmax(pred, dim=1)
             
                             if binary:
-                                y = y.view(y.size(0), 1)
-                                loss = criterion(pred, y.float())
+                                loss = criterion(pred, y.view(y.size(0), 1).float())
+                                probs = torch.sigmoid(pred)
+                                pred_labels = (probs > 0.5).float()
                             else:
                                 loss = criterion(pred, y.long())
+                                pred_labels = torch.argmax(pred, dim=1)
+                                probs = F.softmax(pred, dim=1)
                             test_loss += loss.item()
 
                             total += pred_labels.size(0)
@@ -204,9 +207,8 @@ def train_phoneme_classifier(
                         all_test_losses.append(test_loss)
 
                     test_acc = correct / total
+
                     class_accuracies = class_correct / class_total
-                    # for n, acc in enumerate(class_accuracies):
-                    #     print(f'Test accuracy for phoneme class {n} ("{PHONE_DEF[n]}"): \t{acc:.4f}')
 
                     all_preds = torch.cat(all_preds, dim=0)
                     all_labels = torch.cat(all_labels, dim=0)
@@ -214,7 +216,10 @@ def train_phoneme_classifier(
                     # Convert to numpy arrays for sklearn
                     all_preds_np = all_preds.numpy()
                     all_labels_np = all_labels.numpy()
-                    all_preds_np_argmax = np.argmax(all_preds_np, axis=1)
+                    if binary:
+                        all_preds_np_argmax = (all_preds_np > 0.5)
+                    else:
+                        all_preds_np_argmax = np.argmax(all_preds_np, axis=1)
 
                     # Calculate the AUROC
                     test_auroc_macro = roc_auc_score(
