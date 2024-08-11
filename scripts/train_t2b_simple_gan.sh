@@ -1,13 +1,19 @@
 #!/bin/bash
 
 #SBATCH --nodes=1
-#SBATCH --gres=gpu:v100:1
+#SBATCH --gres=gpu:1
 #SBATCH --ntasks-per-node=4
 #SBATCH --mem-per-cpu=8G
-#SBATCH --time=07:00:00
 #SBATCH --job-name=train_gan
-#SBATCH --partition=short
-#SBATCH --output=/home/lina4471/willett2023/slurm_out/train_t2b_simple_gan.%j.out
+
+#SBATCH --time=00:10:00
+#SBATCH --partition=devel
+#SBATCH --output=/home/lina4471/willett2023/slurm_out/train_t2b_simple_gan_devel.%j.out
+
+# # SBATCH --time=01:00:00
+# # SBATCH --partition=short
+# # SBATCH --output=/home/lina4471/willett2023/slurm_out/train_t2b_simple_gan_short.%j.out
+
 #SBATCH --mail-type=BEGIN,END
 #SBATCH --mail-user=anna.gerhaher@linacre.ox.ac.uk
 

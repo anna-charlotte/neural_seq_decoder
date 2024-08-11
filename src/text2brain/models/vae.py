@@ -176,7 +176,7 @@ class Decoder_4_64_32(DecoderInterface):
         if self.conditioning == "film":
             self.film = FiLM(conditioning_dim=len(classes), in_features=latent_dim, n_layers=n_layers_film)
 
-        self.fc = nn.Sequential(nn.Linear(latent_dim, dec_hidden_dim * 2 * 1), nn.ReLU(inplace=True))  #TODO why 512*2
+        self.fc = nn.Sequential(nn.Linear(input_dim, dec_hidden_dim * 2 * 1), nn.ReLU(inplace=True))  #TODO why 512*2
         self.model = nn.Sequential(
             nn.ConvTranspose2d(dec_hidden_dim, 256, 3, 2, 1, 1, bias=False),  # -> (256) x 4 x 2
             nn.BatchNorm2d(256),

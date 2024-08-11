@@ -5,41 +5,61 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import torch
+from torch.utils.tensorboard import SummaryWriter
+from torchvision import transforms
 
 from data.dataset import PhonemeDataset
+from data.augmentations import GaussianSmoothing
+from data.dataset import PhonemeDataset
+from neural_decoder.neural_decoder_trainer import get_data_loader
+from neural_decoder.phoneme_utils import ROOT_DIR
+from neural_decoder.transforms import (
+    AddOneDimensionTransform,
+    ReorderChannelTransform,
+    SoftsignTransform,
+    TransposeTransform,
+)
 from neural_decoder.neural_decoder_trainer import get_data_loader
 from neural_decoder.phoneme_utils import ROOT_DIR
 from neural_decoder.transforms import SoftsignTransform
 from text2brain.models.phoneme_image_gan import PhonemeImageGAN
-from text2brain.visualization import plot_brain_signal_animation
-from utils import load_pkl, set_seeds
+from text2brain.visualization import plot_brain_signal_animation, plot_single_image
+from utils import dump_args, load_args, load_pkl, set_seeds
+
 
 
 def main(args: dict) -> None:
     set_seeds(args["seed"])
-    torch.use_deterministic_algorithms(True)
 
     out_dir = Path(args["output_dir"])
+    print(f"out_dir = {out_dir}")
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    writer = SummaryWriter(log_dir=str(out_dir / "tb_logs"))
 
     device = args["device"]
     batch_size = args["batch_size"]
-    phoneme_cls = [10, 22]  # list(range(1, 40))
-    args["phoneme_cls"] = phoneme_cls
 
-    train_file = args["train_set_path"]
-    # with open(train_file, "rb") as handle:
-    #     train_data = pickle.load(handle)
-    train_data = load_pkl(train_file)
-
+    train_data = load_pkl(args["train_set_path"])
     transform = None
     if args["transform"] == "softsign":
-        transform = SoftsignTransform()
+        transform = transforms.Compose(
+            [
+                TransposeTransform(0, 1),
+                ReorderChannelTransform(),
+                AddOneDimensionTransform(dim=0),
+                GaussianSmoothing(
+                    256,
+                    kernel_size=args["gaussian_smoothing_kernel_size"],
+                    sigma=args["gaussian_smoothing_sigma"],
+                    dim=1,
+                ),
+                SoftsignTransform(),
+            ]
+        )
 
+    phoneme_cls = args["phoneme_cls"]
     phoneme_ds_filter = {"correctness_value": ["C"], "phoneme_cls": phoneme_cls}
-    if isinstance(phoneme_cls, int):
-        phoneme_ds_filter["phoneme_cls"] = phoneme_cls
-    args["phoneme_ds_filter"] = phoneme_ds_filter
 
     train_dl = get_data_loader(
         data=train_data,
@@ -53,11 +73,18 @@ def main(args: dict) -> None:
 
     print(f"len(train_dl.dataset) = {len(train_dl.dataset)}")
 
-    test_file = args["test_set_path"]
-    # with open(test_file, "rb") as handle:
-    #     test_data = pickle.load(handle)
-    test_data = load_pkl(test_file)
+    val_data = load_pkl(args["val_set_path"])
+    val_dl = get_data_loader(
+        data=val_data,
+        batch_size=batch_size,
+        shuffle=False,
+        collate_fn=None,
+        dataset_cls=PhonemeDataset,
+        phoneme_ds_filter=phoneme_ds_filter,
+        transform=transform,
+    )
 
+    test_data = load_pkl(args["test_set_path"])
     test_dl = get_data_loader(
         data=test_data,
         batch_size=batch_size,
@@ -69,84 +96,78 @@ def main(args: dict) -> None:
     )
 
     gan = PhonemeImageGAN(
+        input_shape=args["input_shape"],
         latent_dim=args["latent_dim"],
         phoneme_cls=args["phoneme_cls"],
-        n_channels=args["n_channels"],
-        ndf=args["ndf"],
+        # ndf=args["ndf"],
         ngf=args["ngf"],
-        device=args["device"],
+        device=device,
         n_critic=args["n_critic"],
         clip_value=args["clip_value"],
-        lr=args["lr"],
+        lr_g=args["lr_g"],
+        lr_d=args["lr_d"],
     )
-    args["model_class"] == gan.__class__.__name__
+    print(f"gan.conditional = {gan.conditional}")
+    args["model_class"] = gan.__class__.__name__
 
-    # load or compute the average images
-    print(f"out_dir = {out_dir}")
+    plot_dir = (
+        ROOT_DIR
+        / "evaluation"
+        / "gan"
+        / "run_20240811_0"
+        / f"gan_{args['timestamp']}_in_{'_'.join(map(str, args['input_shape']))}__latdim_{args['latent_dim']}__lr_{args['lr']}__phoneme_cls_{'_'.join(map(str, phoneme_cls))}"
+    )
+    plot_dir.mkdir(parents=True, exist_ok=True)
+    print(f"plot_dir = {plot_dir}")
+    args["plot_dir"] = str(plot_dir)
+
+    dump_args(args, out_dir / "args")
+    dump_args(args, out_dir / "args.json")
+    dump_args(args, plot_dir / "args.json")
 
     G_losses = []
     D_losses = []
-    # noise_vector = torch.randn(1, gan._g.latent_dim, device=gan.device)
-    n_epochs = args["n_epochs"]
 
-    with open(out_dir / "args", "wb") as file:
-        pickle.dump(args, file)
-    with open(out_dir / "args.json", "w") as file:
-        json.dump(args, file, indent=4)
+    n_epochs = args["n_epochs"]
 
     for epoch in range(n_epochs):
         print(f"epoch = {epoch}")
         for i, data in enumerate(train_dl):
-            errD, errG = gan(data)
+            x, y, _, _ = data
+            loss_D, lossG = gan.train_step(x, y)
+
+            # save losses for plotting
+            G_losses.append(lossG.item())
+            D_losses.append(loss_D.item())
 
             # output training stats
             if i % 250 == 0:
                 print(
-                    f"[{epoch}/{n_epochs}][{i}/{len(train_dl)}] Loss_D: {errD.item()} Loss_G: {errG.item()}"
+                    f"[{epoch}/{n_epochs}][{i}/{len(train_dl)}] Loss_D: {loss_D.item()} Loss_G: {lossG.item()}"
                 )
 
-            #     phoneme = 2
-            #     signal = gan._g(noise_vector, torch.tensor([phoneme]).to(device))
-            #     plot_brain_signal_animation(
-            #         signal=signal,
-            #         save_path=ROOT_DIR
-            #         / "plots"
-            #         / "data_visualization"
-            #         / f"phone_{phoneme}_FAKE_ep{epoch}_i_{i}.gif",
-            #         title=f"Phoneme {phoneme}, Frame",
-            #     )
+                # plot a single image and save to evaluation folder
+                for label in phoneme_cls:
+                    label_t = torch.tensor([label])
 
-            # if i == 0:
-            #     X, _, _, _ = data
-
-            #     phoneme = 2
-            #     for j in range(X.size(0)):
-            #         sub_signal = X[j, :, :]
-            #         print(sub_signal.size())
-            #         plot_brain_signal_animation(
-            #             signal=sub_signal,
-            #             save_path=ROOT_DIR
-            #             / "plots"
-            #             / "data_visualization"
-            #             / f"phone_{phoneme}_REAL_sample_{j}.gif",
-            #             title=f"Real sample, Phoneme {phoneme}, Frame",
-            #         )
-
-            # save losses for plotting
-            G_losses.append(errG.item())
-            D_losses.append(errD.item())
+                    generated_image = gan.generate(label=label_t).cpu().detach()
+                    plot_single_image(
+                        X=generated_image[0][0],
+                        out_file=plot_dir / f"generated_image_{epoch}_{i}__cls_{label}.png",
+                        title=f"GAN generated image \n(phoneme cls {label})"
+                    )
 
         # save GAN
-        file = out_dir / f"modelWeights_epoch_{epoch}"
+        file = out_dir / f"modelWeights"
         print(f"Storing GAN weights to: {file}")
         gan.save_state_dict(file)
         # torch.save(gan.state_dict(), file)
 
-    plot_gan_losses(
-        G_losses,
-        D_losses,
-        out_file=ROOT_DIR / "plots" / "data_visualization" / f"gan_losses_nclasses_{len(phoneme_cls)}.png",
-    )
+        plot_gan_losses(
+            G_losses,
+            D_losses,
+            out_file=plot_dir / f"gan_losses_nclasses_{len(phoneme_cls)}.png",
+        )
 
 
 def plot_gan_losses(g_losses: list, d_losses: list, out_file: Path) -> None:
@@ -168,36 +189,40 @@ if __name__ == "__main__":
     args = {}
     args["seed"] = 0
     args["device"] = "cuda"
+    args["timestamp"] = timestamp
 
-    args["n_classes"] = 2
+    args["phoneme_cls"] = [3]  # [3, 31]
 
-    args["batch_size"] = 16
-    # args["n_output_features"] = 256
-    # args["hidden_dim"] = 512
-    # args["n_layers"] =
+    args["batch_size"] = 64
 
-    args["n_channels"] = 128
-    args["latent_dim"] = 100
+    args["latent_dim"] = 256
+    args["input_shape"] = (4, 64, 32)
+    # args["input_shape"] = (128, 8, 8)
 
-    args["ngf"] = 64
-    args["ndf"] = 64
+    args["ngf"] = None  # 64
+    args["ndf"] = None  # 64
 
     args["n_epochs"] = 50
-    args["lr_generator"] = 0.0001
-    args["lr_discriminator"] = 0.0001
-    args["lr"] = 0.0001
+    args["lr_g"] = 0.0001
+    args["lr_d"] = 0.0001
+    # args["lr"] = 0.0001
     args["clip_value"] = 0.01
     args["n_critic"] = 1
     args["transform"] = "softsign"
+    args["gaussian_smoothing_kernel_size"] = 20
+    args["gaussian_smoothing_sigma"] = 2.0
 
     args["train_set_path"] = (
         "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
     )
+    args["val_set_path"] = (
+        "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_VAL_SPLIT.pkl"
+    )
     args["test_set_path"] = (
-        "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
+        "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_TEST_SPLIT.pkl"
     )
     args["output_dir"] = (
-        f"/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_{timestamp}__nclasses_{args['n_classes']}"
+        f"/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/PhonemeImageGAN_{timestamp}__phoneme_cls_{'_'.join(map(str, args['phoneme_cls']))}"
     )
 
     main(args)

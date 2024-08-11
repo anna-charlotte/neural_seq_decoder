@@ -1,11 +1,12 @@
 import pickle
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.parallel
+import torch.nn.functional as F
 import torch.optim as optim
 import torch.utils.data
 from tqdm import tqdm
@@ -33,55 +34,87 @@ def phonemes_to_signal(model, phonemes: list, signal_shape: Tuple[int, ...] = (3
     return torch.cat(signal, dim=1)
 
 
-class PhonemeImageGAN(T2BGenInterface):
+def _get_indices_in_classes(labels, classes):
+    indices = []
+    for label in labels:
+        index = torch.where(classes == label)[0]
+        indices.append(index)
+        if not index.numel() > 0:
+            raise ValueError(f"Invalid label given: {label}")
+
+    return torch.tensor(indices).int()
+
+
+class PhonemeImageGAN(T2BGenInterface, nn.Module):
     def __init__(
         self,
+        input_shape: Tuple[int, int, int],
         latent_dim: int,
-        phoneme_cls: Optional[list],
-        n_channels: int,
-        ndf: int,
+        phoneme_cls: List[int],
         ngf: int,
         device: str,
+        lr_g: float,
+        lr_d: float,
         n_critic: int = 5,
         clip_value: float = 0.01,
-        lr=1e-4,
     ):
         super(PhonemeImageGAN, self).__init__()
-        if isinstance(phoneme_cls, list):
-            self.conditional = True
+
+        assert isinstance(phoneme_cls, list)
+        if len(phoneme_cls) == 1:
+            self.conditional = False
         else:
             self.conditional = False
-
+        
         self.phoneme_cls = phoneme_cls
-        if isinstance(self.phoneme_cls, int):
-            self.n_classes = 1
-        elif isinstance(self.phoneme_cls, list):
-            self.n_classes = len(self.phoneme_cls)
+        self.n_classes = len(self.phoneme_cls)
+        self.input_shape = tuple(input_shape)
 
-        self._g = Generator(latent_dim, phoneme_cls, ngf).to(device)
-        self._d = Discriminator(n_channels, phoneme_cls, ndf).to(device)
+        if self.input_shape == (128, 8, 8):
+            self._g = Generator_128_8_8(latent_dim, phoneme_cls, ngf).to(device)
+            self._d = Discriminator_128_8_8(128, phoneme_cls).to(device)
+        elif self.input_shape == (4, 64, 32):
+            self._g = Generator_4_64_32(latent_dim, phoneme_cls, ngf).to(device)
+            self._d = self._d = Discriminator_4_64_32(128, phoneme_cls).to(device)  # TODO
+        else:
+            raise ValueError(f"Invalid input shape: {input_shape}")
+        
+        print(f"self.conditional = {self.conditional}")
+        print(f"self._g.conditional = {self._g.conditional}")
+        print(f"self._d.conditional = {self._d.conditional}")
+        
+        print(f"self._g.__class__.__name__ = {self._g.__class__.__name__}")
+        print(f"self._d.__class__.__name__ = {self._d.__class__.__name__}")
+        
+        
         self.device = device
         self.n_critic = n_critic
         self.clip_value = clip_value
-        self.lr = lr
+        self.lr_g = lr_g
+        self.lr_d = lr_d
+
+        print(f"self.n_critic = {self.n_critic}")
 
         self._g.apply(self._weights_init)
         self._d.apply(self._weights_init)
 
-        self.optim_d = optim.RMSprop(self._d.parameters(), lr=self.lr)
-        self.optim_g = optim.RMSprop(self._g.parameters(), lr=self.lr)
+        self.optim_d = optim.AdamW(self._d.parameters(), lr=self.lr_d)
+        self.optim_g = optim.AdamW(self._g.parameters(), lr=self.lr_g)
 
     def _weights_init(self, m):
         if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d) or isinstance(m, nn.BatchNorm2d):
             nn.init.normal_(m.weight.data, 0.0, 0.02)
 
-    def forward(self, data):
-        X_real, y, _, _ = data
+    def train_step(self, x, y):
+        X_real, y = x, y
 
         y = y.to(self.device)
         y = _get_indices_in_classes(y, torch.tensor(self.phoneme_cls, device=y.device)).to(y.device)
         X_real = X_real.to(self.device)
-        X_real = X_real.view(-1, 128, 8, 8)
+
+        for name, param in self.named_parameters():
+            if param.grad is not None:
+                print(f'{name}: {param.grad.norm().item()}')
 
         for _ in range(self.n_critic):
             self._d.zero_grad()
@@ -91,8 +124,8 @@ class PhonemeImageGAN(T2BGenInterface):
 
             X_fake = self._g(noise, y)
             output_fake = self._d(X_fake.detach(), y)
-            errD = -(torch.mean(output_real) - torch.mean(output_fake))
-            errD.backward()
+            loss_D = -(torch.mean(output_real) - torch.mean(output_fake))
+            loss_D.backward()
             self.optim_d.step()
 
             # Weight clipping
@@ -102,20 +135,25 @@ class PhonemeImageGAN(T2BGenInterface):
         # Update generator
         self._g.zero_grad()
         output_fake = self._d(X_fake, y)
-        errG = -torch.mean(output_fake)
-        errG.backward()
+        loss_G = -torch.mean(output_fake)
+        loss_G.backward()
         self.optim_g.step()
 
-        return errD, errG
+        return loss_D, loss_G
 
     def generate(self, label: torch.Tensor):
+        """Generate an image. Label is the class label, not the index."""
         self._g.eval()
         noise = torch.randn(1, self._g.latent_dim, device=self.device)
-        gen_img = self._g(noise, label.to(self.device))
+        if self.conditional:
+            y = _get_indices_in_classes(label, torch.tensor(self.phoneme_cls, device=label.device)).to(label.device)
+            gen_img = self._g(noise, y)
+        else:
+            gen_img = self._g(noise)
         return gen_img
 
     def create_synthetic_phoneme_dataset(
-        self, n_samples, neural_window_shape: tuple = (128, 8, 8), label_distribution: list = None
+        self, n_samples, neural_window_shape: tuple = (128, 8, 8)
     ):
         assert isinstance(neural_window_shape, tuple)
 
@@ -123,11 +161,7 @@ class PhonemeImageGAN(T2BGenInterface):
         if isinstance(classes, int):
             classes = [classes]
 
-        if label_distribution is None:
-            label_distribution = [1.0 / len(classes)] * len(classes)
-
-        assert len(label_distribution) == len(classes), "Label distribution must match the number of classes"
-        assert np.isclose(sum(label_distribution), 1.0), "Label distribution must sum to 1"
+        label_distribution = [1.0 / len(classes)] * len(classes)
 
         neural_windows = []
         phoneme_labels = []
@@ -135,9 +169,8 @@ class PhonemeImageGAN(T2BGenInterface):
         for _ in tqdm(range(n_samples), desc="Creating synthetic phoneme dataset with {n_samples} samples"):
             label = np.random.choice(classes, p=label_distribution)
             label = torch.from_numpy(np.array([label])).to(self.device)
-            y = _get_indices_in_classes(label, torch.tensor(classes, device=label.device)).to(label.device)
 
-            neural_window = self.generate(label=y)
+            neural_window = self.generate(label=label)
             neural_window = neural_window.view(neural_window.size(0), *neural_window_shape)
 
             neural_windows.append(neural_window.to("cpu"))
@@ -161,7 +194,6 @@ class PhonemeImageGAN(T2BGenInterface):
         model = cls(
             latent_dim=args["latent_dim"],
             phoneme_cls=phoneme_cls,
-            n_channels=args["n_channels"],
             ndf=args["ndf"],
             ngf=args["ngf"],
             device=args["device"],
@@ -174,136 +206,222 @@ class PhonemeImageGAN(T2BGenInterface):
         return model
 
 
-class Generator(nn.Module):
-    def __init__(self, latent_dim, phoneme_cls, ngf):
-        super(Generator, self).__init__()
-        self.latent_dim = latent_dim
+class Generator_128_8_8(nn.Module):
+    def __init__(self, latent_dim: int, phoneme_cls: List[int], dec_emb_dim: int = 32):
+        super(Generator_128_8_8, self).__init__()
+
+        self.input_shape = (128, 8, 8)
         self.phoneme_cls = phoneme_cls
-        self.ngf = ngf
-        if isinstance(phoneme_cls, list):
+        self.n_classes = len(phoneme_cls)
+
+        self.dec_emb_dim = dec_emb_dim
+        self.latent_dim = latent_dim
+        input_dim = latent_dim
+
+        self.conditional = False
+        self.embedding = None
+        
+        if len(phoneme_cls) > 1:
             self.conditional = True
-            n_classes = len(phoneme_cls)
-            input_dim = latent_dim + n_classes
-            self.label_emb = nn.Embedding(n_classes, n_classes)
-        else:
-            self.conditional = False
-            input_dim = latent_dim
-            self.label_emb = None
-
-        # self.model = nn.Sequential(
-        #     # input is Z, going into a convolution
-        #     nn.ConvTranspose2d(input_dim, ngf * 8, 4, 1, 0, bias=False),
-        #     nn.BatchNorm2d(ngf * 8),
-        #     nn.ReLU(True),
-        #     # state size. (ngf*8) x 4 x 4
-        #     nn.ConvTranspose2d(ngf * 8, ngf * 4, 4, 2, 1, bias=False),
-        #     nn.BatchNorm2d(ngf * 4),
-        #     nn.ReLU(True),
-        #     # state size. (ngf*4) x 8 x 8
-        #     nn.ConvTranspose2d(ngf * 4, 32, 4, 2, 1, bias=False),  # Output 32 channels, stop upscaling here
-        #     nn.Tanh(),
-        #     # Final state size. (32) x 16 x 16
-        # )
-
+            self.embedding = nn.Embedding(len(phoneme_cls), self.dec_emb_dim)
+            input_dim += self.dec_emb_dim
+ 
+        self.fc = nn.Sequential(nn.Linear(input_dim, 256), nn.LeakyReLU(0.2, inplace=True))  # -> (512)
         self.model = nn.Sequential(
-            # input is Z, going into a convolution
-            nn.ConvTranspose2d(input_dim, ngf * 8, 4, 1, 0, bias=False),
-            nn.BatchNorm2d(ngf * 8),
-            nn.ReLU(True),
-            # state size. (ngf*8) x 4 x 4
-            nn.ConvTranspose2d(ngf * 8, ngf * 4, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ngf * 4),
-            nn.ReLU(True),
-            # state size. (ngf*4) x 8 x 8
-            nn.ConvTranspose2d(ngf * 4, 128, 3, 1, 1, bias=False),  # Output 128 channels, stop upscaling here
+            # input is (512) x 1 x 1
+            nn.ConvTranspose2d(256, 256, 3, 2, 1, 1, bias=False),  # -> (256) x 2 x 2
+            nn.BatchNorm2d(256),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.ConvTranspose2d(256, 128, 3, 2, 1, 1, bias=False),  # -> (128) x 4 x 4
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.ConvTranspose2d(128, 64, 3, 2, 1, 1, bias=False),  # -> (64) x 8 x 8
+            nn.BatchNorm2d(64),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.ConvTranspose2d(64, 128, 3, 1, 1, bias=False),  # -> (output_channels) x 8 x 8
             nn.Tanh(),
-            # Fina state size. (128) x 8 x 8
         )
 
-    def forward(self, noise, labels):
+
+    def forward(self, noise: torch.Tensor, y: Optional[torch.Tensor] = None):
+        """Forward pass of the generator. Takes y as indices indices, not class labels. """
+        
         if self.conditional:
-            labels = self.label_emb(labels)
-            gen_input = torch.cat((noise, labels), -1)
-            gen_input = gen_input.view(gen_input.size(0), -1, 1, 1)
+            y_emb = self.embedding(y)
+            h = torch.concat((noise, y_emb), dim=1)
+            # y_one_hot = F.one_hot(y_indices, num_classes=len(self.classes)).float()
         else:
-            gen_input = noise.view(noise.size(0), -1, 1, 1)
-        output = self.model(gen_input)
-        return output
+            h = noise
 
+        h = self.fc(h)
+        h = h.view(h.size(0), 256, 1, 1)
+        h = self.model(h)
+        h = h.view(-1, 1, 256, 32)
+        return h
 
-def _get_indices_in_classes(labels, classes):
-    indices = []
-    for label in labels:
-        index = torch.where(classes == label)[0]
-        indices.append(index)
-        if not index.numel() > 0:
-            raise ValueError(f"Invalid label given: {label}")
+    
+class Generator_4_64_32(nn.Module):
+    def __init__(self, latent_dim: int, phoneme_cls: List[int], ngf: int, dec_emb_dim: int = 32):
+        super(Generator_4_64_32, self).__init__()
 
-    return torch.tensor(indices).int()
+        self.input_shape = (4, 64, 32)
+        self.phoneme_cls = phoneme_cls
+        self.n_classes = len(phoneme_cls)
 
+        self.dec_emb_dim = dec_emb_dim
+        self.latent_dim = latent_dim
+        input_dim = latent_dim
 
-class Discriminator(nn.Module):
-    def __init__(self, n_channels, phoneme_cls, ndf):
-        super(Discriminator, self).__init__()
-
-        if isinstance(phoneme_cls, list):
+        self.conditional = False
+        self.embedding = None
+        
+        if len(phoneme_cls) > 1:
             self.conditional = True
-            n_classes = len(phoneme_cls)
-            input_dim = n_channels + n_classes
-            self.label_emb = nn.Embedding(n_classes, n_classes)
+            self.embedding = nn.Embedding(len(phoneme_cls), self.dec_emb_dim)
+            input_dim += self.dec_emb_dim
+ 
+        print(f"input_dim = {input_dim}")
+
+        self.fc = nn.Sequential(nn.Linear(input_dim, 256 * 2 * 1), nn.LeakyReLU(0.2, inplace=True))
+        self.model = nn.Sequential(
+            nn.ConvTranspose2d(256, 256, 3, 2, 1, 1, bias=False),  # -> (256) x 4 x 2
+            nn.BatchNorm2d(256),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.ConvTranspose2d(256, 128, 3, 2, 1, 1, bias=False),  # -> (128) x 8 x 4
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.ConvTranspose2d(128, 64, 3, 2, 1, 1, bias=False),  # -> (64) x 16 x 8
+            nn.BatchNorm2d(64),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.ConvTranspose2d(64, 32, 3, 2, 1, 1, bias=False),  # -> (32) x 32 x 16
+            nn.BatchNorm2d(32),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.ConvTranspose2d(32, 16, 3, 2, 1, 1, bias=False),  # -> (16) x 64 x 32
+            nn.BatchNorm2d(16),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.ConvTranspose2d(16, 4, 3, 1, 1, bias=False),  # -> (4) x 64 x 32
+            nn.Tanh(),
+        )
+
+
+    def forward(self, noise: torch.Tensor, y: Optional[torch.Tensor] = None):
+        """Forward pass of the generator. Takes y as indices indices, not class labels. """
+        
+        if self.conditional:
+            y_emb = self.embedding(y)
+            h = torch.concat((noise, y_emb), dim=1)
+            # y_one_hot = F.one_hot(y_indices, num_classes=len(self.classes)).float()
+        else:
+            h = noise
+
+        h = self.fc(h)
+        h = h.view(h.size(0), 256, 2, 1)
+        h = self.model(h)
+        h = h.view(-1, 1, 256, 32)
+        return h
+
+
+class Discriminator_128_8_8(nn.Module):
+    def __init__(self, n_channels: int, phoneme_cls: List[int]):
+        super(Discriminator_128_8_8, self).__init__()
+        self.phoneme_cls = phoneme_cls
+        self.n_classes = len(phoneme_cls)
+        self.input_shape = (128, 8, 8)
+
+        if len(phoneme_cls) > 1:
+            self.conditional = True
+            input_dim = n_channels + self.n_classes
+            self.label_emb = nn.Embedding(self.n_classes, self.n_classes)
         else:
             self.conditional = False
             input_dim = n_channels
             self.label_emb = None
 
-        self.phoneme_cls = phoneme_cls
-        print(f"phoneme_cls = {phoneme_cls}")
-        # self.model = nn.Sequential(
-        #     # input is (n_channels) x 16 x 16
-        #     nn.Conv2d(input_dim, ndf, 4, 2, 1, bias=False),
-        #     nn.LeakyReLU(0.2, inplace=True),
-        #     # state size: (ndf) x 8 x 8
-        #     nn.Conv2d(ndf, ndf * 2, 4, 2, 1, bias=False),
-        #     nn.BatchNorm2d(ndf * 2),
-        #     nn.LeakyReLU(0.2, inplace=True),
-        #     # state size: (ndf*2) x 4 x 4
-        #     nn.Conv2d(ndf * 2, ndf * 4, 4, 1, 0, bias=False),
-        #     # nn.BatchNorm2d(ndf * 4),
-        #     nn.LeakyReLU(0.2, inplace=True),
-        #     # state size: (ndf*4) x 1 x 1
-        #     nn.Conv2d(ndf * 4, 1, 1, 1, 0, bias=False),
-        #     # nn.Sigmoid()
-        #     # output. 1 x 1 x 1
-        # )
-
         self.model = nn.Sequential(
-            # input is (input_dim) x 8 x 8
-            nn.Conv2d(input_dim, ndf, 3, 1, 1, bias=False),
+            nn.Conv2d(input_dim, 64, 3, 1, 1, bias=False),  # -> (64) x 8 x 8
+            nn.BatchNorm2d(64),
             nn.LeakyReLU(0.2, inplace=True),
-            # state size: (ndf) x 8 x 8
-            nn.Conv2d(ndf, ndf * 2, 3, 2, 1, bias=False),
-            nn.BatchNorm2d(ndf * 2),
+            nn.MaxPool2d(2, 2),
+            nn.Conv2d(64, 128, 3, 1, 1, bias=False),  # -> (128) x 4 x 4
+            nn.BatchNorm2d(128),
             nn.LeakyReLU(0.2, inplace=True),
-            # state size: (ndf*2) x 4 x 4
-            nn.Conv2d(ndf * 2, ndf * 4, 3, 2, 1, bias=False),
-            nn.BatchNorm2d(ndf * 4),
+            nn.MaxPool2d(2, 2),  # -> (128) x 2 x 2
+            nn.Conv2d(128, 256, 3, 1, 1),  # -> (256) x 2 x 2
+            nn.BatchNorm2d(256),
             nn.LeakyReLU(0.2, inplace=True),
-            # state size: (ndf*4) x 2 x 2
-            nn.Conv2d(ndf * 4, ndf * 8, 3, 2, 1, bias=False),
-            nn.BatchNorm2d(ndf * 8),
+            nn.MaxPool2d(2, 2),  # -> (256) x 1 x 1
+            nn.Flatten(),
+            nn.Linear(256 * 1 * 1, 512),  # -> (512)
+            nn.BatchNorm1d(512),
             nn.LeakyReLU(0.2, inplace=True),
-            # state size: (ndf*8) x 1 x 1
-            nn.Conv2d(ndf * 8, 1, 1, 1, 0, bias=False),
-            # output. 1 x 1 x 1
+            nn.Linear(512, 1),
         )
 
-    def forward(self, img, labels):
+    def forward(self, img: torch.Tensor, y: torch.Tensor):
+        img = img.view(-1, *self.input_shape)
         if self.conditional:
-            labels = self.label_emb(labels)
-            labels = labels.view(labels.size(0), labels.size(1), 1, 1)
-            labels = labels.repeat(1, 1, img.size(2), img.size(3))
-            d_in = torch.cat((img, labels), 1)
+            y = self.label_emb(y)
+            y = y.view(y.size(0), y.size(1), 1, 1)
+            y = y.repeat(1, 1, img.size(2), img.size(3))
+            d_in = torch.cat((img, y), 1)
         else:
             d_in = img
+
         output = self.model(d_in)
         return output.view(-1)
+
+
+class Discriminator_4_64_32(nn.Module):
+    def __init__(self, n_channels: int, phoneme_cls: List[int]):
+        super(Discriminator_4_64_32, self).__init__()
+        self.phoneme_cls = phoneme_cls
+        self.n_classes = len(phoneme_cls)
+        self.input_shape = (4, 64, 32)
+
+        if len(phoneme_cls) > 1:
+            self.conditional = True
+            input_dim = n_channels + self.n_classes
+            self.label_emb = nn.Embedding(self.n_classes, self.n_classes)
+        else:
+            self.conditional = False
+            input_dim = n_channels
+            self.label_emb = None
+
+        self.model = nn.Sequential(
+            nn.Conv2d(4, 16, 3, 1, 1, bias=False),  # -> (16) x 64 x 32
+            nn.BatchNorm2d(16),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.MaxPool2d(2, 2), # -> (16) x 32 x 16
+            nn.Conv2d(16, 32, 3, 2, 1, bias=False),  # -> (32) x 16 x 8
+            nn.BatchNorm2d(32),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.MaxPool2d(2, 2), # -> (32) x 8 x 4
+            nn.Conv2d(32, 64, 3, 2, 1, bias=False),  # -> (64) x 4 x 2
+            nn.BatchNorm2d(64),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(64, 128, 3, 2, 1, bias=False),  # -> (128) x 2 x 1
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(0.2, inplace=True),
+        )
+        self.fc1 = nn.Linear(128 * 2 * 1, 512)
+        self.fc2 = nn.Linear(512, 1)
+        
+
+    def forward(self, img: torch.Tensor, y: torch.Tensor):
+        img = img.view(-1, *self.input_shape)
+        if self.conditional:
+            y = self.label_emb(y)
+            y = y.view(y.size(0), y.size(1), 1, 1)
+            y = y.repeat(1, 1, img.size(2), img.size(3))
+            d_in = torch.cat((img, y), 1)
+        else:
+            d_in = img
+
+        out = self.model(d_in)
+        out = out.view(out.size(0), -1)
+
+        out = self.fc1(out)
+        out = F.relu(out)
+        out = self.fc2(out)
+        return out
+
