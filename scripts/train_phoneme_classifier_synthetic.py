@@ -202,7 +202,7 @@ def main(args: dict) -> None:
 
     n_epochs = args["n_epochs"]
     lr = args["lr"]
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    optimizer = optim.AdamW(model.parameters(), lr=lr)
     
     if n_classes == 2:
         criterion = nn.BCEWithLogitsLoss()
@@ -246,7 +246,7 @@ if __name__ == "__main__":
     args["n_epochs"] = 10
 
     for lr in [1e-3]:
-        for batch_size in [64, 128]:
+        for batch_size in [64]:
             for cls_weights in ["sqrt", None]:
                 now = datetime.now()
                 timestamp = now.strftime("%Y%m%d_%H%M%S")
@@ -264,8 +264,11 @@ if __name__ == "__main__":
                     # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_151151/modelWeights",  # cls 3
                     # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_151204/modelWeights",  # cls 31
                     
-                    f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_182747/modelWeights_epoch_120",  # cls 3
-                    f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_180210/modelWeights_epoch_120",  # cls 31
+                    # f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_182747/modelWeights_epoch_120",  # cls 3
+                    # f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_180210/modelWeights_epoch_120",  # cls 31
+
+                    f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_unconditional_20240809_044252/modelWeights_epoch_110",  # cls [3, 31]
+
                 ]
                 args["generative_model_n_samples_train"] = 20_000
                 args["generative_model_n_samples_val"] = 2_000

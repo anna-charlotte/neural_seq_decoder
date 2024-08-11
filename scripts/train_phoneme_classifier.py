@@ -18,12 +18,20 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 from torch.utils.data import DataLoader
+from torchvision import transforms
 
+from data.augmentations import GaussianSmoothing
 from data.dataloader import MergedDataLoader
 from data.dataset import PhonemeDataset
 from neural_decoder.model_phoneme_classifier import (
     PhonemeClassifier,
     train_phoneme_classifier,
+)
+from neural_decoder.transforms import (
+    AddOneDimensionTransform,
+    ReorderChannelTransform,
+    SoftsignTransform,
+    TransposeTransform,
 )
 from neural_decoder.neural_decoder_trainer import get_data_loader
 from neural_decoder.phoneme_utils import PHONE_DEF, ROOT_DIR
@@ -58,10 +66,26 @@ def main(args: dict) -> None:
     batch_size = args["batch_size"]
     device = args["device"]
 
-    train_file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
-    # with open(train_file, "rb") as handle:
-    #     data_train = pickle.load(handle)
-    data_train = load_pkl(train_file)
+    phoneme_ds_filter = {"correctness_value": args["correctness_value"], "phoneme_cls": args["phoneme_cls"]}
+    args["phoneme_ds_filter"] = phoneme_ds_filter
+    phoneme_classes = args["phoneme_cls"]
+
+    transform = None
+    if args["transform"] == "softsign":
+        transform = transforms.Compose(
+            [
+                TransposeTransform(0, 1),
+                ReorderChannelTransform(),
+                AddOneDimensionTransform(dim=0),
+                GaussianSmoothing(
+                    256,
+                    kernel_size=args["gaussian_smoothing_kernel_size"],
+                    sigma=args["gaussian_smoothing_sigma"],
+                    dim=1,
+                ),
+                SoftsignTransform(),
+            ]
+        )
 
     # fmt: off
     class_counts = [
@@ -89,18 +113,11 @@ def main(args: dict) -> None:
     else:
         class_weights = None
 
-    phoneme_ds_filter = {"correctness_value": args["correctness_value"], "phoneme_cls": args["phoneme_cls"]}
-    args["phoneme_ds_filter"] = phoneme_ds_filter
-    phoneme_classes = args["phoneme_cls"]
-
-    transform = None
-    if args["transform"] == "softsign":
-        transform = SoftsignTransform()
     print(f"transform = {transform.__class__.__name__}")
 
     # load train dataloader
     train_dl_real = get_data_loader(
-        data=data_train,
+        data=load_pkl(args["train_set_path"]),
         batch_size=batch_size,
         shuffle=False,
         collate_fn=None,
@@ -112,13 +129,8 @@ def main(args: dict) -> None:
     labels_train = get_label_distribution(train_dl_real.dataset)
 
     # load val dataloader
-    val_file = args["val_set_path"]
-    # with open(val_file, "rb") as handle:
-    #     val_data = pickle.load(handle)
-    val_data = load_pkl(val_file)
-
     val_dl = get_data_loader(
-        data=val_data,
+        data=load_pkl(args["val_set_path"]),
         batch_size=1,
         shuffle=False,
         collate_fn=None,
@@ -136,13 +148,8 @@ def main(args: dict) -> None:
     # )
 
     # load test dataloader
-    test_file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
-    # with open(test_file, "rb") as handle:
-    #     test_data = pickle.load(handle)
-    test_data = load_pkl(test_file)
-
     test_dl = get_data_loader(
-        data=test_data,
+        data=load_pkl(args["test_set_path"]),
         batch_size=1,
         shuffle=False,
         collate_fn=None,
@@ -198,8 +205,12 @@ def main(args: dict) -> None:
 
     n_epochs = args["n_epochs"]
     lr = args["lr"]
-    optimizer = optim.Adam(model.parameters(), lr=lr)
-    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.AdamW(model.parameters(), lr=lr)
+
+    if n_classes == 2:
+        criterion = nn.BCEWithLogitsLoss()
+    else:
+        criterion = nn.CrossEntropyLoss()
 
     with open(out_dir / "args", "wb") as file:
         pickle.dump(args, file)
@@ -209,7 +220,7 @@ def main(args: dict) -> None:
     output = train_phoneme_classifier(
         model=model,
         train_dl=train_dl,
-        test_dl=test_dl,
+        test_dls=[val_dl],  # test_dl,
         n_classes=n_classes,
         optimizer=optimizer,
         criterion=criterion,
@@ -234,10 +245,10 @@ if __name__ == "__main__":
     # args["test_set_path"] = str(data_dir / "rnn_test_set_with_logits.pkl")
     args["n_epochs"] = 10
 
-    for lr in [1e-4]:
-        for batch_size in [64, 128]:
-            for cls_weights in ["sqrt", None]:
-                for synthetic_data in [True]:
+    for lr in [1e-3]:
+        for batch_size in [64]:
+            for cls_weights in [None]:  # ["sqrt", None]:
+                for synthetic_data in [False]:
                     now = datetime.now()
                     timestamp = now.strftime("%Y%m%d_%H%M%S")
 
@@ -261,8 +272,9 @@ if __name__ == "__main__":
                     args["class_weights"] = cls_weights
                     args["transform"] = "softsign"
                     args["patience"] = 20
-                    args["gaussian_smoothing"] = 2.0
-                    args["phoneme_cls"] = list(range(1, 40))
+                    args["gaussian_smoothing_kernel_size"] = 20
+                    args["gaussian_smoothing_sigma"] = 2.0
+                    args["phoneme_cls"] = [3, 31]  # list(range(1, 40))
                     args["correctness_value"] = ["C"]
 
                     # args["n_input_features"] = 41

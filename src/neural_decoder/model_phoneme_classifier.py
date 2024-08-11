@@ -150,11 +150,11 @@ def train_phoneme_classifier(
 
             loss.backward()
             optimizer.step()
-            all_train_losses.append(loss.item())
+            all_train_losses.append(loss.item() / y.size(0))
 
             # evaluate
             if j_batch % 100 == 0:
-                print("\nEval ...")
+                # print("\nEval ...")
 
                 for k_test_dl, test_dl in enumerate(test_dls):
                     model.eval()
