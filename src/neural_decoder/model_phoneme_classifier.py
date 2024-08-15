@@ -15,6 +15,7 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 from torch.utils.data import DataLoader
+from dataclasses import dataclass
 
 from neural_decoder.phoneme_utils import PHONE_DEF, ROOT_DIR
 from text2brain.models.phoneme_image_gan import _get_indices_in_classes
@@ -46,9 +47,12 @@ from text2brain.models.phoneme_image_gan import _get_indices_in_classes
 
 
 class PhonemeClassifier(nn.Module):
-    def __init__(self, n_classes: int, input_shape: Tuple[int, ...]):
+    def __init__(self, classes: List[int], input_shape: Tuple[int, ...]):
         super(PhonemeClassifier, self).__init__()
         self.input_shape = input_shape
+        self.classes = classes
+        n_classes = len(classes)
+
         out_dim = 1 if n_classes == 2 else n_classes
 
         self.model = nn.Sequential(
@@ -101,10 +105,110 @@ class PhonemeClassifierRNN(nn.Module):
         return out
 
 
+@dataclass
+class Stats:
+    loss: float
+    acc: float
+    class_accuracies: np.ndarray
+    auroc_macro: float
+    auroc_micro: float
+    f1_macro: float
+    f1_micro: float
+    balanced_acc: float
+    all_preds_pt: torch.Tensor
+    all_labels_pt: torch.Tensor
+    all_preds_np_argmax: np.ndarray
+
+
+def eval_phoneme_classifier(model, dl, criterion, device):
+    n_classes = len(model.classes)
+    binary = True if n_classes == 2 else False
+
+    model.eval()
+    loss = 0.0
+    correct = 0
+    total = 0
+    all_preds = []
+    all_labels = []
+    class_correct = np.zeros(n_classes)
+    class_total = np.zeros(n_classes)
+
+    with torch.no_grad():
+        for batch in dl:
+            X, y, logits, dayIdx = batch
+            y = _get_indices_in_classes(y, torch.tensor(model.classes, device=y.device)).to(y.device)
+
+            X, y, logits, dayIdx = X.to(device), y.to(device), logits.to(device), dayIdx.to(device)
+
+            pred = model(X)
+        
+            if binary:
+                curr_loss = criterion(pred, y.view(y.size(0), 1).float())
+                probs = torch.sigmoid(pred)
+                pred_labels = (probs > 0.5).float()
+            else:
+                curr_loss = criterion(pred, y.long())
+                pred_labels = torch.argmax(pred, dim=1)
+                probs = F.softmax(pred, dim=1)
+            loss += curr_loss.item()
+
+            total += pred_labels.size(0)
+            correct += (pred_labels == y).sum().item()
+
+            all_preds.append(probs.cpu())
+            all_labels.append(y.cpu())
+
+            for label, prediction in zip(y, pred_labels):
+                if label == prediction:
+                    class_correct[label] += 1
+                class_total[label] += 1
+                
+
+    acc = correct / total
+    class_accuracies = class_correct / class_total
+
+    all_preds = torch.cat(all_preds, dim=0)
+    all_labels = torch.cat(all_labels, dim=0)
+
+    # Convert to numpy arrays for sklearn
+    all_preds_np = all_preds.numpy()
+    all_labels_np = all_labels.numpy()
+    if binary:
+        all_preds_np_argmax = (all_preds_np > 0.5)
+    else:
+        all_preds_np_argmax = np.argmax(all_preds_np, axis=1)
+
+    # Calculate the AUROC
+    auroc_macro = roc_auc_score(all_labels_np, all_preds_np_argmax, multi_class="ovr", average="macro")
+    auroc_micro = roc_auc_score(all_labels_np, all_preds_np_argmax, multi_class="ovr", average="micro")
+
+    # calculate f1 score
+    f1_macro = f1_score(all_labels_np, all_preds_np_argmax, average="macro")
+    f1_micro = f1_score(all_labels_np, all_preds_np_argmax, average="micro")
+
+    # Calculate Balanced Accuracy
+    balanced_acc = balanced_accuracy_score(all_labels_np, all_preds_np_argmax)
+
+    return Stats(
+        loss=loss,
+        acc=acc,
+        class_accuracies=class_accuracies,
+        auroc_macro=auroc_macro,
+        auroc_micro=auroc_micro,
+        f1_macro=f1_macro,
+        f1_micro=f1_micro,
+        balanced_acc=balanced_acc,
+        all_labels_pt=all_labels,
+        all_preds_pt=all_preds,
+        all_preds_np_argmax=all_preds_np_argmax
+    )
+
+
 def train_phoneme_classifier(
     model: PhonemeClassifier,
     train_dl: DataLoader,
-    test_dls: List[DataLoader],
+    val_dls: List[DataLoader],
+    test_dl: DataLoader,
     n_classes: int,
     optimizer: optim,
     criterion,
@@ -116,22 +220,20 @@ def train_phoneme_classifier(
 ) -> dict:
     print("Train PhonemeClassifier model ...")
     stop_training = False
-    best_test_acc = 0.0
+    best_val_acc = 0.0
     count_patience = 0
     all_train_losses = []
-    all_test_losses = []
-    all_test_aurocs_macro = []
-    all_test_aurocs_micro = []
-    all_test_f1_macro = []
-    all_test_f1_micro = []
-    all_test_balanced_acc = []
+    all_val_losses = {dl.name: [] for dl in val_dls}
+    all_val_aurocs_macro = {dl.name: [] for dl in val_dls}
+    all_val_aurocs_micro = {dl.name: [] for dl in val_dls}
+    all_val_f1_macro = {dl.name: [] for dl in val_dls}
+    all_val_f1_micro = {dl.name: [] for dl in val_dls}
+    all_val_balanced_acc = {dl.name: [] for dl in val_dls}
     time_steps = []
     binary = True if n_classes == 2 else False
 
-    print(f"n_epochs = {n_epochs}")
 
     for i_epoch in range(n_epochs):
-        print(f"i_epoch = {i_epoch}")
         for j_batch, data in enumerate(train_dl):
             model.train()
             optimizer.zero_grad()
@@ -155,126 +257,74 @@ def train_phoneme_classifier(
             # evaluate
             if j_batch % 100 == 0:
                 # print("\nEval ...")
+                time_steps.append({"epoch": i_epoch, "batch": j_batch})
 
-                for k_test_dl, test_dl in enumerate(test_dls):
-                    model.eval()
-                    test_loss = 0.0
-                    correct = 0
-                    total = 0
-                    all_preds = []
-                    all_labels = []
-                    class_correct = np.zeros(n_classes)
-                    class_total = np.zeros(n_classes)
+                for val_dl in val_dls:
+                    curr_stats = eval_phoneme_classifier(model, val_dl, criterion, device)
 
-                    with torch.no_grad():
-                        for batch in test_dl:
-                            X, y, logits, dayIdx = batch
-                            y = _get_indices_in_classes(y, torch.tensor(model_classes, device=y.device)).to(
-                                y.device
-                            )
+                    val_loss = curr_stats.loss
+                    all_val_losses[val_dl.name].append(val_loss)
 
-                            X, y, logits, dayIdx = (
-                                X.to(device),
-                                y.to(device),
-                                logits.to(device),
-                                dayIdx.to(device),
-                            )
+                    val_acc = curr_stats.acc
+                    class_accuracies = curr_stats.class_accuracies
 
-                            pred = model(X)
-            
-                            if binary:
-                                loss = criterion(pred, y.view(y.size(0), 1).float())
-                                probs = torch.sigmoid(pred)
-                                pred_labels = (probs > 0.5).float()
-                            else:
-                                loss = criterion(pred, y.long())
-                                pred_labels = torch.argmax(pred, dim=1)
-                                probs = F.softmax(pred, dim=1)
-                            test_loss += loss.item()
+                    all_labels = curr_stats.all_labels_pt
+                    all_preds = curr_stats.all_preds_pt
+                    all_preds_np_argmax = curr_stats.all_preds_np_argmax
 
-                            total += pred_labels.size(0)
-                            correct += (pred_labels == y).sum().item()
+                    # auroc
+                    val_auroc_macro = curr_stats.auroc_macro
+                    all_val_aurocs_macro[val_dl.name].append(val_auroc_macro)
 
-                            all_preds.append(probs.cpu())
-                            all_labels.append(y.cpu())
+                    val_dl_auroc_micro = curr_stats.auroc_micro
+                    all_val_aurocs_micro[val_dl.name].append(val_dl_auroc_micro)
 
-                            for label, prediction in zip(y, pred_labels):
-                                if label == prediction:
-                                    class_correct[label] += 1
-                                class_total[label] += 1
+                    # f1 score
+                    val_f1_macro = curr_stats.f1_macro
+                    val_f1_micro = curr_stats.f1_micro
+                    all_val_f1_macro[val_dl.name].append(val_f1_macro)
+                    all_val_f1_micro[val_dl.name].append(val_f1_micro)
 
-                    if k_test_dl == 0:
-                        all_test_losses.append(test_loss)
-
-                    test_acc = correct / total
-
-                    class_accuracies = class_correct / class_total
-
-                    all_preds = torch.cat(all_preds, dim=0)
-                    all_labels = torch.cat(all_labels, dim=0)
-
-                    # Convert to numpy arrays for sklearn
-                    all_preds_np = all_preds.numpy()
-                    all_labels_np = all_labels.numpy()
-                    if binary:
-                        all_preds_np_argmax = (all_preds_np > 0.5)
-                    else:
-                        all_preds_np_argmax = np.argmax(all_preds_np, axis=1)
-
-                    # Calculate the AUROC
-                    test_auroc_macro = roc_auc_score(
-                        all_labels_np, all_preds_np_argmax, multi_class="ovr", average="macro"
-                    )
-                    if k_test_dl == 0:
-                        all_test_aurocs_macro.append(test_auroc_macro)
-
-                    test_auroc_micro = roc_auc_score(
-                        all_labels_np, all_preds_np_argmax, multi_class="ovr", average="micro"
-                    )
-                    if k_test_dl == 0:
-                        all_test_aurocs_micro.append(test_auroc_micro)
-
-                    # calculate f1 score
-                    test_f1_macro = f1_score(all_labels_np, all_preds_np_argmax, average="macro")
-                    test_f1_micro = f1_score(all_labels_np, all_preds_np_argmax, average="micro")
-                    if k_test_dl == 0:
-                        all_test_f1_macro.append(test_f1_macro)
-                        all_test_f1_micro.append(test_f1_micro)
-
-                    # Calculate Balanced Accuracy
-                    test_balanced_acc = balanced_accuracy_score(all_labels_np, all_preds_np_argmax)
-                    if k_test_dl == 0:
-                        all_test_balanced_acc.append(test_balanced_acc)
+                    # balanced cccuracy
+                    val_balanced_acc = curr_stats.balanced_acc
+                    all_val_balanced_acc[val_dl.name].append(val_balanced_acc)
 
                     print(
-                        f"k_test_dl: {k_test_dl} ({'fake' if k_test_dl == 0 else 'real'}), epoch: {i_epoch}, batch: {j_batch}, test AUROC macro: {test_auroc_macro:.4f}, test AUROC micro: {test_auroc_micro:.4f}, test accuracy: {test_acc:.4f}, test_loss: {test_loss:.4f}"
+                        f"dl: {val_dl.name},\t epoch: {i_epoch}, batch: {j_batch}, val AUROC macro: {val_auroc_macro:.4f}, val AUROC micro: {val_dl_auroc_micro:.4f}, val accuracy: {val_acc:.4f}, val_loss: {val_loss:.4f}"
                     )
-                    if k_test_dl == 0:
-                        time_steps.append({"epoch": i_epoch, "batch": j_batch})
-                        stats = {
-                            "time_steps": time_steps,
-                            "best_test_acc": best_test_acc,
-                            "train_losses": all_train_losses,
-                            "test_losses": all_test_losses,
-                            "test_aurocs_micro": all_test_aurocs_micro,
-                            "test_aurocs_macro": all_test_aurocs_macro,
-                            "test_f1_micro": all_test_f1_micro,
-                            "test_f1_macro": all_test_f1_macro,
-                            "test_balanced_acc": all_test_balanced_acc,
-                        }
-                        for n, acc in enumerate(class_accuracies):
-                            stats[f"test_acc_for_phoneme_{n}_{PHONE_DEF[n]}"] = acc
+                    
+                    stats = {
+                        "time_steps": time_steps,
+                        "train_losses": all_train_losses,
+                        "val_losses": all_val_losses,
+                        "val_aurocs_micro": all_val_aurocs_micro,
+                        "val_aurocs_macro": all_val_aurocs_macro,
+                        "val_f1_micro": all_val_f1_micro,
+                        "val_f1_macro": all_val_f1_macro,
+                        "val_balanced_acc": all_val_balanced_acc,
+                    }
+                    if "real" in val_dl.name:
+                        stats["best_val_acc"] =  best_val_acc,
+                    
+                    for n, acc in enumerate(class_accuracies):
+                        stats[f"val_acc_for_phoneme_{n}_{PHONE_DEF[n]}"] = acc
 
-                        with open(out_dir / "trainingStats.json", "w") as file:
-                            json.dump(stats, file, indent=4)
+                    with open(out_dir / f"trainingStats.json", "w") as file:
+                        json.dump(stats, file, indent=4)
 
-                        if test_acc > best_test_acc:
+                    if "real" in val_dl.name:
+                        if val_acc > best_val_acc:
+                            if test_dl is not None:
+                                test_stats = eval_phoneme_classifier(model, test_dl, criterion, device)
+                                test_acc = test_stats.acc
+                                print(f"Test accuracies at the time of best validation acc: test_acc={test_acc}")
+
                             count_patience = 0
                             model_file = out_dir / "modelWeights"
-                            print(f"Saving model checkpoint to: {model_file}")
+                            
                             torch.save(model.state_dict(), model_file)
-                            best_test_acc = test_acc
-                            print(f"New best test accuracy: {best_test_acc:.4f}")
+                            best_val_acc = val_acc
+                            print(f"New best val accuracy: {best_val_acc:.4f}")
 
                             # Save the predictions and true labels
                             torch.save(all_preds, out_dir / "all_preds.pt")
