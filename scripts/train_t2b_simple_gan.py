@@ -22,6 +22,7 @@ from neural_decoder.transforms import (
 from neural_decoder.neural_decoder_trainer import get_data_loader
 from neural_decoder.phoneme_utils import ROOT_DIR
 from neural_decoder.transforms import SoftsignTransform
+from text2brain.models.model_interface_load import load_t2b_gen_model
 from text2brain.models.phoneme_image_gan import PhonemeImageGAN
 from text2brain.visualization import plot_brain_signal_animation, plot_single_image
 from utils import dump_args, load_args, load_pkl, set_seeds
@@ -99,23 +100,36 @@ def main(args: dict) -> None:
         input_shape=args["input_shape"],
         latent_dim=args["latent_dim"],
         phoneme_cls=args["phoneme_cls"],
-        # ndf=args["ndf"],
-        ngf=args["ngf"],
         device=device,
         n_critic=args["n_critic"],
         clip_value=args["clip_value"],
         lr_g=args["lr_g"],
         lr_d=args["lr_d"],
+        pool=args["pool"],
+        smooth_labels=args["smooth_labels"],
+        noisy_labels=args["noisy_labels"],
+        loss=args["loss"],
     )
-    print(f"gan.conditional = {gan.conditional}")
     args["model_class"] = gan.__class__.__name__
+
+    if "vae_path" in args.keys():
+        print("Loading VAE.decoder state dict weights for GAN.generator")
+        vae = load_t2b_gen_model(weights_path=args["vae_path"])
+
+        vae_fc_state_dict = vae.decoder.fc.state_dict()
+        gan._g.fc.load_state_dict(vae_fc_state_dict)
+        vae_model_state_dict = vae.decoder.model.state_dict()
+        gan._g.model.load_state_dict(vae_model_state_dict)
+
+    print(f"Reinitializing optimizers")
+    gan.init_optimizers()
 
     plot_dir = (
         ROOT_DIR
         / "evaluation"
         / "gan"
-        / "run_20240811_0"
-        / f"gan_{args['timestamp']}_in_{'_'.join(map(str, args['input_shape']))}__latdim_{args['latent_dim']}__lr_{args['lr']}__phoneme_cls_{'_'.join(map(str, phoneme_cls))}"
+        / "run_20240812_0"
+        / f"gan_{args['timestamp']}_in_{'_'.join(map(str, args['input_shape']))}__latdim_{args['latent_dim']}__lrg_{args['lr_g']}__lrd_{args['lr_d']}__phoneme_cls_{'_'.join(map(str, phoneme_cls))}"
     )
     plot_dir.mkdir(parents=True, exist_ok=True)
     print(f"plot_dir = {plot_dir}")
@@ -127,6 +141,9 @@ def main(args: dict) -> None:
 
     G_losses = []
     D_losses = []
+    D_accs = []
+    
+    noise = torch.randn(3, gan._g.latent_dim, device=gan.device)
 
     n_epochs = args["n_epochs"]
 
@@ -134,28 +151,39 @@ def main(args: dict) -> None:
         print(f"epoch = {epoch}")
         for i, data in enumerate(train_dl):
             x, y, _, _ = data
-            loss_D, lossG = gan.train_step(x, y)
+            if (i % 10 == 0 and i < 100 and epoch == 0) or (i == 0):
+                # plot a single image and save to evaluation folder
+                for label in phoneme_cls:
+                    for j in range(noise.size(0)):
+                        label_t = torch.tensor([label])
+
+                        # generated_image = gan.generate(label=label_t).cpu().detach()
+                        generated_image = gan.generate_from_given_noise(noise=noise[j].unsqueeze(0), label=label_t).cpu().detach()
+                        
+                        plot_single_image(
+                            X=generated_image[0][0],
+                            out_file=plot_dir / f"generated_image_{epoch}_{i}_{j}__cls_{label}.png",
+                            title=f"GAN generated image \n(phoneme cls {label}, epoch {epoch})"
+                        )
+
+                    plot_single_image(
+                        X=x[0][0],
+                        out_file=plot_dir / f"real_image_{epoch}_{i}__cls_{label}.png",
+                        title=f"Real image \n(phoneme cls {label})"
+                    )
+
+            loss_D, loss_G, acc_D = gan.train_step(x, y)
 
             # save losses for plotting
-            G_losses.append(lossG.item())
+            G_losses.append(loss_G.item())
             D_losses.append(loss_D.item())
+            D_accs.append(acc_D.item())
 
             # output training stats
             if i % 250 == 0:
                 print(
-                    f"[{epoch}/{n_epochs}][{i}/{len(train_dl)}] Loss_D: {loss_D.item()} Loss_G: {lossG.item()}"
+                    f"[{epoch}/{n_epochs}][{i}/{len(train_dl)}] Loss_D: {loss_D.item()} Loss_G: {loss_G.item()}"
                 )
-
-                # plot a single image and save to evaluation folder
-                for label in phoneme_cls:
-                    label_t = torch.tensor([label])
-
-                    generated_image = gan.generate(label=label_t).cpu().detach()
-                    plot_single_image(
-                        X=generated_image[0][0],
-                        out_file=plot_dir / f"generated_image_{epoch}_{i}__cls_{label}.png",
-                        title=f"GAN generated image \n(phoneme cls {label})"
-                    )
 
         # save GAN
         file = out_dir / f"modelWeights"
@@ -167,6 +195,12 @@ def main(args: dict) -> None:
             G_losses,
             D_losses,
             out_file=plot_dir / f"gan_losses_nclasses_{len(phoneme_cls)}.png",
+        )
+
+        plot_accuracies(
+            D_accs,
+            out_file=plot_dir / f"discriminator_accuracy_train.png",
+            title=f"Discriminator accuracies during training ({len(train_dl)} iterations per epoch)"
         )
 
 
@@ -181,48 +215,71 @@ def plot_gan_losses(g_losses: list, d_losses: list, out_file: Path) -> None:
     plt.savefig(out_file)
 
 
+def plot_accuracies(accs: list, out_file: Path, title: str) -> None:
+    plt.figure(figsize=(10, 5))
+    plt.title(title)
+    plt.plot(accs, label="G")
+    plt.xlabel("iterations")
+    plt.ylabel("Accuracy")
+    plt.legend()
+    plt.savefig(out_file)
+
+
 if __name__ == "__main__":
-    now = datetime.now()
-    timestamp = now.strftime("%Y%m%d_%H%M%S")
+    for lr_g in [1e-3]:  #, 1e-5, 1e-3]:  # [1e-3, 1e-4, 1e-5]:
+        for factor_lr_d in [1, 0.5, 0.2]:  # , 0.5]:
+            for n_critic in [1, 2]:  # , 2]:
+                for pool in ["avg"]:
+                    for smooth_labels in [0.1]:
+                        for noisy_labels in [0.05, 0.01]: # TODO
+                            for loss in ["bce with flipped labels"]:  # , "wasserstein", ]:
 
-    print("in main ...")
-    args = {}
-    args["seed"] = 0
-    args["device"] = "cuda"
-    args["timestamp"] = timestamp
+                                now = datetime.now()
+                                timestamp = now.strftime("%Y%m%d_%H%M%S")
 
-    args["phoneme_cls"] = [3]  # [3, 31]
+                                print("in main ...")
+                                args = {}
+                                args["seed"] = 0
+                                args["device"] = "cuda"
+                                args["timestamp"] = timestamp
 
-    args["batch_size"] = 64
+                                args["phoneme_cls"] = [3]  # [3, 31]
 
-    args["latent_dim"] = 256
-    args["input_shape"] = (4, 64, 32)
-    # args["input_shape"] = (128, 8, 8)
+                                args["batch_size"] = 64
 
-    args["ngf"] = None  # 64
-    args["ndf"] = None  # 64
+                                args["latent_dim"] = 256
+                                args["input_shape"] = (4, 64, 32)
+                                # args["input_shape"] = (128, 8, 8)
 
-    args["n_epochs"] = 50
-    args["lr_g"] = 0.0001
-    args["lr_d"] = 0.0001
-    # args["lr"] = 0.0001
-    args["clip_value"] = 0.01
-    args["n_critic"] = 1
-    args["transform"] = "softsign"
-    args["gaussian_smoothing_kernel_size"] = 20
-    args["gaussian_smoothing_sigma"] = 2.0
+                                # args["ngf"] = None  # 64
+                                # args["ndf"] = None  # 64
 
-    args["train_set_path"] = (
-        "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
-    )
-    args["val_set_path"] = (
-        "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_VAL_SPLIT.pkl"
-    )
-    args["test_set_path"] = (
-        "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_TEST_SPLIT.pkl"
-    )
-    args["output_dir"] = (
-        f"/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/PhonemeImageGAN_{timestamp}__phoneme_cls_{'_'.join(map(str, args['phoneme_cls']))}"
-    )
+                                args["n_epochs"] = 40
+                                args["loss"] = loss
+                                args["lr_g"] = lr_g
+                                args["lr_d"] = lr_g * factor_lr_d
+                                # args["lr"] = 0.0001
+                                args["clip_value"] = 0.01
+                                args["n_critic"] = n_critic
+                                args["transform"] = "softsign"
+                                args["gaussian_smoothing_kernel_size"] = 20
+                                args["gaussian_smoothing_sigma"] = 2.0
+                                args["pool"] = pool
+                                args["smooth_labels"] = smooth_labels
+                                args["noisy_labels"] = noisy_labels
 
-    main(args)
+                                args["vae_path"] = "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_182747/modelWeights_epoch_120"
+                                args["train_set_path"] = (
+                                    "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
+                                )
+                                args["val_set_path"] = (
+                                    "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_VAL_SPLIT.pkl"
+                                )
+                                args["test_set_path"] = (
+                                    "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_TEST_SPLIT.pkl"
+                                )
+                                args["output_dir"] = (
+                                    f"/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/PhonemeImageGAN_{timestamp}__phoneme_cls_{'_'.join(map(str, args['phoneme_cls']))}"
+                                )
+
+                                main(args)
