@@ -19,6 +19,7 @@ from text2brain.models.vae_interface import VAEBase
 from text2brain.visualization import plot_single_image
 from utils import load_args
 
+
 TypeCondVAE = TypeVar("TypeCondVAE", bound="CondVAE")
 TypeVAE = TypeVar("TypeVAE", bound="VAE")
 
@@ -26,6 +27,7 @@ TypeVAE = TypeVar("TypeVAE", bound="VAE")
 class DecoderInterface(nn.Module):
     def __init__(self, latent_dim: int, classes: Optional[list] = None, dec_emb_dim: int = None, conditioning: Literal["concat", "film"] = None, n_layers_film: int = None, dec_hidden_dim: int = 512):
         super(DecoderInterface, self).__init__()
+        self.latent_dim = latent_dim
         self.classes = classes if classes is not None else []
         self.dec_emb_dim = len(self.classes) if dec_emb_dim is None else dec_emb_dim
         self.dec_hidden_dim = dec_hidden_dim
@@ -410,14 +412,15 @@ class CondVAE(VAEBase, T2BGenInterface):
         neural_windows = []
         phoneme_labels = []
 
-        for label in classes:
-            # label = self.decoder._label_to_indices(labels=[kls], classes=classes)
-            label = torch.tensor([label]).to(self.device)
-            
-            for _ in range(n_per_class):
-                neural_window = self.sample(y=label)
-                neural_windows.append(neural_window.to("cpu"))
-                phoneme_labels.append(label.to("cpu"))
+        with torch.no_grad():
+            for label in classes:
+                # label = self.decoder._label_to_indices(labels=[kls], classes=classes)
+                label = torch.tensor([label]).to(self.device)
+                
+                for _ in range(n_per_class):
+                    neural_window = self.sample(y=label)
+                    neural_windows.append(neural_window.to("cpu"))
+                    phoneme_labels.append(label.to("cpu"))
 
         return SyntheticPhonemeDataset(neural_windows[:n_samples], phoneme_labels[:n_samples])
 
