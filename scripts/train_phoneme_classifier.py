@@ -54,14 +54,14 @@ def get_label_distribution(dataset):
 
 
 def main(args: dict) -> None:
-    print("Training with the following arguments:")
+    print("Training phoneme classifier with the following arguments:")
     for k, v in args.items():
         print(f"{k}: {v}")
 
+    set_seeds(args["seed"])
+
     out_dir = Path(args["output_dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
-
-    set_seeds(args["seed"])
 
     batch_size = args["batch_size"]
     device = args["device"]
@@ -93,8 +93,9 @@ def main(args: dict) -> None:
         6125, 6573, 4027, 4259, 3315, 5505, 15591, 10434, 2194, 9755,
         13949, 9138, 18297, 3411, 3658, 1661, 6034, 11435, 11605, 2815,
         23188, 2083, 1688, 8414, 6566, 6633, 3707, 7403, 7807
-    ]  
-    # fmt: on
+    ] # fmt: on
+    if len(phoneme_classes) < len(class_counts):
+        class_counts = [class_counts[i-1] for i in phoneme_classes]
 
     # # plot phoneme distribution
     # plot_phoneme_distribution(
@@ -126,10 +127,11 @@ def main(args: dict) -> None:
         class_weights=class_weights,
         transform=transform,
     )
-    labels_train = get_label_distribution(train_dl_real.dataset)
+    train_dl_real.name = "train-real"
+    # labels_train = get_label_distribution(train_dl_real.dataset)
 
     # load val dataloader
-    val_dl = get_data_loader(
+    val_dl_real = get_data_loader(
         data=load_pkl(args["val_set_path"]),
         batch_size=1,
         shuffle=False,
@@ -139,6 +141,7 @@ def main(args: dict) -> None:
         class_weights=None,
         transform=transform,
     )
+    val_dl_real.name = "val-real"
     # labels_val = get_label_distribution(val_dl.dataset)
     # class_counts_val = [labels_val[i] for i in range(1, 40)]
     # plot_phoneme_distribution(
@@ -148,7 +151,7 @@ def main(args: dict) -> None:
     # )
 
     # load test dataloader
-    test_dl = get_data_loader(
+    test_dl_real = get_data_loader(
         data=load_pkl(args["test_set_path"]),
         batch_size=1,
         shuffle=False,
@@ -158,6 +161,7 @@ def main(args: dict) -> None:
         class_weights=None,
         transform=transform,
     )
+    test_dl_real.name = "test-real"
     # labels_test = get_label_distribution(test_dl.dataset)
     # class_counts_test = [labels_test[i] for i in range(1, 40)]
     # plot_phoneme_distribution(
@@ -167,22 +171,21 @@ def main(args: dict) -> None:
     # )
 
     if (
-        "generative_model_args_path" in args.keys()
-        and "generative_model_weights_path" in args.keys()
+       "generative_model_weights_path" in args.keys()
         and "generative_model_n_samples" in args.keys()
     ):
         print("Use real and synthetic data ...")
+        weights_path = args["generative_model_weights_path"]
+        print(f"weights_path = {weights_path}")
+        gen_model = load_t2b_gen_model(weights_path=weights_path)
 
-        gen_model = load_t2b_gen_model(
-            args_path=args["generative_model_args_path"],
-            weights_path=args["generative_model_weights_path"],
-        )
         print(f"gen_model.__class__.__name__ = {gen_model.__class__.__name__}")
 
         synthetic_ds = gen_model.create_synthetic_phoneme_dataset(
             n_samples=args["generative_model_n_samples"],
-            neural_window_shape=(1, 32, 256),
+            neural_window_shape=(1, 256, 32),
         )
+
         synthetic_dl = DataLoader(
             synthetic_ds,
             batch_size=batch_size,
@@ -201,7 +204,7 @@ def main(args: dict) -> None:
 
     n_classes = len(phoneme_classes)
     args["n_classes"] = n_classes
-    model = PhonemeClassifier(n_classes=n_classes, input_shape=args["input_shape"]).to(device)
+    model = PhonemeClassifier(classes=phoneme_classes, input_shape=args["input_shape"]).to(device)
 
     n_epochs = args["n_epochs"]
     lr = args["lr"]
@@ -217,10 +220,16 @@ def main(args: dict) -> None:
     with open(out_dir / "args.json", "w") as file:
         json.dump(args, file, indent=4)
 
+    print(f"len(train_dl_real.dataset) = {len(train_dl_real.dataset)}")
+    # print(f"len(synthetic_dl.dataset) = {len(synthetic_dl.dataset)}")
+    print(f"len(val_dl_real.dataset) = {len(val_dl_real.dataset)}")
+    print(f"len(test_dl_real.dataset) = {len(test_dl_real.dataset)}")
+
     output = train_phoneme_classifier(
         model=model,
         train_dl=train_dl,
-        test_dls=[val_dl],  # test_dl,
+        val_dls=[val_dl_real],  # test_dl,
+        test_dl=test_dl_real,
         n_classes=n_classes,
         optimizer=optimizer,
         criterion=criterion,
@@ -243,12 +252,13 @@ if __name__ == "__main__":
     args["test_set_path"] = str(data_dir / "rnn_test_set_with_logits_TEST_SPLIT.pkl")
 
     # args["test_set_path"] = str(data_dir / "rnn_test_set_with_logits.pkl")
-    args["n_epochs"] = 10
+    args["n_epochs"] = 100
 
-    for lr in [1e-3]:
+    for synthetic_data in [False]:
         for batch_size in [64]:
-            for cls_weights in [None]:  # ["sqrt", None]:
-                for synthetic_data in [False]:
+            for cls_weights in ["sqrt", None]:
+                for lr in [1e-3, 5e-3, 1e-4]:
+                    # for n_samples_syn in [5_000, 10_000, 15_000, 20_000]:
                     now = datetime.now()
                     timestamp = now.strftime("%Y%m%d_%H%M%S")
 
@@ -256,14 +266,25 @@ if __name__ == "__main__":
                         f"/data/engs-pnpl/lina4471/willett2023/phoneme_classifier/PhonemeClassifier_bs_{batch_size}__lr_{lr}__cls_ws_{cls_weights}__synthetic_{synthetic_data}_{timestamp}"
                     )
                     if synthetic_data:
-                        args["generative_model_args_path"] = (
-                            "/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_20240708_103107/args"
-                        )
-                        args["generative_model_weights_path"] = (
-                            "/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_20240708_103107/modelWeights_epoch_6"
-                        )
-                        args["generative_model_n_samples"] = 50_000
-                        args["generative_model_proportion"] = 1.0
+                        # args["generative_model_args_path"] = (
+                        #     "/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_20240708_103107/args"
+                        # )
+                        args["generative_model_weights_path"] = f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_unconditional_20240809_044252/modelWeights_epoch_110"  # cls [3, 31]
+                        # args["generative_model_weights_path"] = [
+                        #     # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_conditional_20240807_103730/modelWeights",  # cls 3
+                        #     # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_conditional_20240807_103916/modelWeights",  # cls 31
+
+                        #     # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_151151/modelWeights",  # cls 3
+                        #     # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_151204/modelWeights",  # cls 31
+                            
+                        #     # f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_182747/modelWeights_epoch_120",  # cls 3
+                        #     # f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_180210/modelWeights_epoch_120",  # cls 31
+
+                        #     f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_unconditional_20240809_044252/modelWeights_epoch_110",  # cls [3, 31]
+
+                        # ]
+                        args["generative_model_n_samples"] = n_samples_syn
+                        args["generative_model_proportion"] = None
                         print(args["generative_model_weights_path"])
 
                     args["input_shape"] = (128, 8, 8)
@@ -271,7 +292,7 @@ if __name__ == "__main__":
                     args["batch_size"] = batch_size
                     args["class_weights"] = cls_weights
                     args["transform"] = "softsign"
-                    args["patience"] = 20
+                    args["patience"] = 40
                     args["gaussian_smoothing_kernel_size"] = 20
                     args["gaussian_smoothing_sigma"] = 2.0
                     args["phoneme_cls"] = [3, 31]  # list(range(1, 40))
