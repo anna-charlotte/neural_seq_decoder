@@ -34,7 +34,7 @@ def phonemes_to_signal(model, phonemes: list, signal_shape: Tuple[int, ...] = (3
     return torch.cat(signal, dim=1)
 
 
-def _get_indices_in_classes(labels, classes):
+def _get_indices_in_classes(labels: torch.Tensor, classes: torch.Tensor):
     indices = []
     for label in labels:
         index = torch.where(classes == label)[0]
