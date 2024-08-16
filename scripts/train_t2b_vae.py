@@ -60,7 +60,7 @@ def find_matching_args_files(base_dir: Path, target_args: dict, keys_to_ignore: 
 
 
 def load_checkpoint(model, args, base_dir, keys_to_ignore):
-    print("LOOKING FOR CHECKPOINT")
+    print("LOOKING FOR CHECKPOINT ...")
     if "start_epoch" not in args.keys():
         args["start_epoch"] = 0
 
@@ -211,7 +211,9 @@ def main(args: dict) -> None:
 
     print(f"loss_fn.__class__.__name__ = {loss_fn.__class__.__name__}")
 
-    model, args, stats = load_checkpoint(model, args, out_dir.parent, keys_to_ignore=["geco_max_beta", "output_dir", "plot_dir", "n_epochs"])
+    stats = None
+    if args["load_from_checkpoint"]:
+        model, args, stats = load_checkpoint(model, args, out_dir.parent, keys_to_ignore=["geco_max_beta", "output_dir", "plot_dir", "n_epochs"])
         
     if stats is None:
         all_mse = {"train": [], "val": []}
@@ -229,14 +231,8 @@ def main(args: dict) -> None:
         if isinstance(loss_fn, GECOLoss):
             loss_fn.beta = all_betas[-1]
     
-    vae_dir = "vae_conditional" if isinstance(model, CondVAE) else "vae"
-    plot_dir = (
-        ROOT_DIR
-        / "evaluation"
-        / vae_dir
-        / "run_20240805_0__phoneme_3_31__film_n_layers_2"
-        / f"reconstructed_images_model_input_shape_{'_'.join(map(str, args['input_shape']))}__cond_{args['conditioning']}__dec_emb_dim_{args['dec_emb_dim']}__latent_dim_{args['latent_dim']}__loss_{args['loss']}_{args['geco_goal']}_{args['geco_step_size']}_{args['geco_beta_init']}_{args['geco_beta_max']}__lr_{args['lr']}__gs_{args['gaussian_smoothing_kernel_size']}_{args['gaussian_smoothing_sigma']}__bs_{batch_size}__phoneme_cls_{'_'.join(map(str, phoneme_cls))}__dec_hid_dim_{args['dec_hidden_dim']}"
-    )
+    # vae_dir = "vae_conditional" if isinstance(model, CondVAE) else "vae"
+    plot_dir = args["p[lot_dir]"]
     plot_dir.mkdir(parents=True, exist_ok=True)
     print(f"plot_dir = {plot_dir}")
     args["plot_dir"] = str(plot_dir)
@@ -356,24 +352,24 @@ def main(args: dict) -> None:
         print(
             f"[{epoch}/{n_epochs}] train_loss: {train_loss} val_loss: {epoch_val_loss / n_batches_val}"
         )
-        if epoch > 100 and epoch % 10 == 0:
+        if epoch >= 90 and epoch % 10 == 0:
             model.save_state_dict(out_dir / f"modelWeights_epoch_{epoch}")
         
-        # save checkpoints
-        if isinstance(loss_fn, GECOLoss):
-            if first_ckp:
-                if train_loss > loss_fn.goal:
-                    model.save_state_dict(out_dir / f"modelWeights_before_passing_goal_{loss_fn.goal}.pt")
-                    checkpoints[f"modelWeights_before_passing_goal"] = epoch
-                else:
-                    first_ckp = False
+        # # save checkpoints
+        # if isinstance(loss_fn, GECOLoss):
+        #     if first_ckp:
+        #         if train_loss > loss_fn.goal:
+        #             model.save_state_dict(out_dir / f"modelWeights_before_passing_goal_{loss_fn.goal}.pt")
+        #             checkpoints[f"modelWeights_before_passing_goal"] = epoch
+        #         else:
+        #             first_ckp = False
 
-            if second_ckp:
-                if loss_fn.beta < loss_fn.beta_max:
-                    model.save_state_dict(out_dir / f"modelWeights_before_passing_max_beta_{args['geco_beta_max']}.pt")
-                    checkpoints[f"modelWeights_before_passing_max_beta"] = epoch
-                else:
-                    second_ckp = False
+        #     if second_ckp:
+        #         if loss_fn.beta < loss_fn.beta_max:
+        #             model.save_state_dict(out_dir / f"modelWeights_before_passing_max_beta_{args['geco_beta_max']}.pt")
+        #             checkpoints[f"modelWeights_before_passing_max_beta"] = epoch
+        #         else:
+        #             second_ckp = False
 
         # save training statistics
         stats = {"loss": all_epoch_loss, "mse": all_mse, "kld": all_kld, "beta": all_betas, "epoch_ckps": checkpoints}
@@ -424,21 +420,25 @@ if __name__ == "__main__":
     for input_shape in [[4, 64, 32],]:  # [[4, 64, 32], [1, 256, 32], [128, 8, 8]]:
         for loss in ["geco"]:  # ["elbo", "geco"]:
             for lr in [1e-3]:  # [1e-3, 1e-4, 1e-5]:
-                for n_layers_film in [2, 1]:  #, 1]:
+                for n_layers_film in [2]:  #, 1]:
                     for geco_goal in [0.05]:  # , 0.037]:
                         for geco_step_size in [1e-2]:  # , 1e-3, 1e-4]:
                             for geco_beta_init in [1e-3]:  # , 1e-5, 1e-7]:
                                 for dec_emb_dim in [None]:  # [8, 16, 32]:
                                     for geco_beta_max in [1e-1]:
-                                        for conditioning in ["film"]:
-                                            for latent_dim in [128, 256, 64]:  # , 128, 100]:
-                                                for dec_hidden_dim in [256, 128]:
-                                                    for phoneme_cls in [[3, 31],]:
+                                        for conditioning in ["concat", "film", None]:
+                                            for latent_dim in [256]:  # , 128, 100]:
+                                                for dec_hidden_dim in [256]:
+                                                    for phoneme_cls in [[3,], [31,], [3, 31],]:
+                                                        if (conditioning is None and len(phoneme_cls) > 1) or (isinstance(conditioning, str) and len(phoneme_cls) == 1):
+                                                            continue
 
                                                         now = datetime.now()
                                                         timestamp = now.strftime("%Y%m%d_%H%M%S")
 
                                                         args = {}
+                                                        args["load_from_checkpoint"] = False
+
                                                         args["n_layers_film"] = n_layers_film
 
                                                         args["seed"] = 0
@@ -477,9 +477,17 @@ if __name__ == "__main__":
                                                         args["test_set_path"] = (
                                                             "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_TEST_SPLIT.pkl"
                                                         )
-                                                        vae_dir_name = "VAE_unconditional" if len(args["phoneme_cls"]) > 1 else "VAE_conditional"
+                                                        # vae_dir_name = "VAE_unconditional" if len(args["phoneme_cls"]) > 1 else "VAE_conditional"
                                                         args["output_dir"] = (
-                                                            f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/{vae_dir_name}_{timestamp}"
+                                                            f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_experiment_conditioning/VAE__conditioning_{args['conditioning']}__phoneme_cls_{args['phoneme_cls']}"
+                                                        )
+                                                        args["plot_dir"] = (
+                                                            ROOT_DIR
+                                                            / "evaluation"
+                                                            / "vae_experiments"
+                                                            / "run_20240816__VAE_experiment_conditioning"
+                                                            / f"vae__conditioning_{args['conditioning']}__phoneme_cls_{args['phoneme_cls']}"
+                                                            # / f"reconstructed_images_model_input_shape_{'_'.join(map(str, args['input_shape']))}__cond_{args['conditioning']}__dec_emb_dim_{args['dec_emb_dim']}__latent_dim_{args['latent_dim']}__loss_{args['loss']}_{args['geco_goal']}_{args['geco_step_size']}_{args['geco_beta_init']}_{args['geco_beta_max']}__lr_{args['lr']}__gs_{args['gaussian_smoothing_kernel_size']}_{args['gaussian_smoothing_sigma']}__bs_{batch_size}__phoneme_cls_{'_'.join(map(str, phoneme_cls))}__dec_hid_dim_{args['dec_hidden_dim']}"
                                                         )
 
                                                         main(args)
