@@ -9,6 +9,7 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset
 
 from neural_decoder.phoneme_utils import PHONE_DEF_SIL
+# from neural_decoder.neural_decoder_trainer import get_data_loader
 from utils import load_pkl
 
 
@@ -99,20 +100,18 @@ class PhonemeDataset(BaseDataset):
         transform: callable = None,
         kernel_len: int = 32,
         stride: int = 4,
-        phoneme_cls: int = None,
         filter_by=None,
     ) -> None:
         if filter_by is None:
             filter_by = {}
         self.kernel_len = kernel_len
         self.stride = stride
-        self.phoneme_cls = phoneme_cls
         self.filter_by = filter_by
+        self.phoneme_cls = filter_by.get("phoneme_cls")
         super().__init__(data, transform)
 
     def prepare_data(self) -> None:
-        if self.phoneme_cls is not None:
-            assert self.phoneme_cls in range(len(PHONE_DEF_SIL))
+        assert self.phoneme_cls is not None
 
         self.neural_windows = []
         self.phonemes = []
