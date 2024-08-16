@@ -290,7 +290,7 @@ def train_phoneme_classifier(
                     all_val_balanced_acc[val_dl.name].append(val_balanced_acc)
 
                     print(
-                        f"dl: {val_dl.name},\t epoch: {i_epoch}, batch: {j_batch}, val AUROC macro: {val_auroc_macro:.4f}, val AUROC micro: {val_dl_auroc_micro:.4f}, val accuracy: {val_acc:.4f}, val_loss: {val_loss:.4f}"
+                        f"dl: {val_dl.name},\t epoch: {i_epoch}, batch: {j_batch}, val AUROC macro: {val_auroc_macro:.4f}, val AUROC micro: {val_dl_auroc_micro:.4f}, val accuracy: {val_acc:.4f}, val_loss: {val_loss:.4f}\t Patience counter: {count_patience} out of {patience}"
                     )
                     
                     stats = {
@@ -314,17 +314,18 @@ def train_phoneme_classifier(
 
                     if "real" in val_dl.name:
                         if val_acc > best_val_acc:
-                            if test_dl is not None:
-                                test_stats = eval_phoneme_classifier(model, test_dl, criterion, device)
-                                test_acc = test_stats.acc
-                                print(f"Test accuracies at the time of best validation acc: test_acc={test_acc}")
-
+                
                             count_patience = 0
                             model_file = out_dir / "modelWeights"
                             
                             torch.save(model.state_dict(), model_file)
                             best_val_acc = val_acc
                             print(f"New best val accuracy: {best_val_acc:.4f}")
+                            
+                            if test_dl is not None:
+                                test_stats = eval_phoneme_classifier(model, test_dl, criterion, device)
+                                test_acc = test_stats.acc
+                                print(f"Test accuracies at the time of best validation acc: test_acc={test_acc}")
 
                             # Save the predictions and true labels
                             torch.save(all_preds, out_dir / "all_preds.pt")
@@ -355,9 +356,9 @@ def train_phoneme_classifier(
                             if count_patience == patience:
                                 stop_training = True
                                 print(f"Stop training due to no improvements after {patience} steps ...")
+                                print(f"Highest val acc (syn) was: \t{best_val_acc:.4f}")
+                                print(f"Highest test acc (syn) was: \t{test_acc:.4f}")
                                 break
-
-                print(f"Patience counter: {count_patience} out of {patience}")
 
             if stop_training:
                 break
