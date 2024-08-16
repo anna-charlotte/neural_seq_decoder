@@ -3,8 +3,15 @@ from collections import namedtuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from dataclasses import dataclass
 
-LossResults = namedtuple("LossResults", ["mse", "kld", "loss"])
+# LossResults = namedtuple("LossResults", ["mse", "kld", "loss"])
+
+@dataclass
+class LossResults:
+    mse: torch.Tensor
+    kld: torch.Tensor
+    loss: torch.Tensor
 
 
 def compute_kl_divergence(logvar, mu, reduction: str):
