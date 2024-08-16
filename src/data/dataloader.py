@@ -42,4 +42,4 @@ class MergedDataLoader:
                 return next(self.iter2)
 
     def __len__(self):
-        return min(len(self.loader1), len(self.loader2))
+        return len(self.loader1) + len(self.loader2)
