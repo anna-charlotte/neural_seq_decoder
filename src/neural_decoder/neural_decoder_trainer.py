@@ -15,6 +15,7 @@ from data.dataloader import MergedDataLoader
 from data.dataset import PhonemeDataset, SpeechDataset, _padding
 from neural_decoder.model import GRUDecoder
 from utils import load_args, load_pkl
+from text2brain.models.phoneme_image_gan import _get_indices_in_classes
 
 
 def get_data_loader(
@@ -39,8 +40,9 @@ def get_data_loader(
 
     sampler = None
     if class_weights is not None:
-        all_y = ds.phonemes
-        sample_weights = class_weights[torch.tensor(all_y) - 1]
+        all_labels = torch.tensor(ds.phonemes)
+        all_y = _get_indices_in_classes(labels=all_labels, classes=torch.tensor(ds.phoneme_cls))
+        sample_weights = class_weights[torch.tensor(all_y).long()]
         sampler = WeightedRandomSampler(
             weights=sample_weights, num_samples=len(sample_weights), replacement=True
         )
