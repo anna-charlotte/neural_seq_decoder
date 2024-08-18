@@ -252,46 +252,55 @@ if __name__ == "__main__":
 
 
     for batch_size in [64]:
-        for n_train in [5_000, 10_000, 20_000, 40_000, 60_000, 80_000, 100_000, 120_000]:
-            for lr in [1e-3, 1e-4]:
-                now = datetime.now()
-                timestamp = now.strftime("%Y%m%d_%H%M%S")
-
-                args["output_dir"] = (
-                    f"/data/engs-pnpl/lina4471/willett2023/phoneme_classifier/__PhonemeClassifier_bs_{batch_size}__lr_{lr}__cls_ws_{cls_weights}__train_on_only_synthetic_{timestamp}"
-                )
-                # args["generative_model_args_path"] = (
-                #     "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_unconditional_20240801_082756/args.json"
-                # )
-                args["generative_model_weights_path"] = [
-                    # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_conditional_20240807_103730/modelWeights",  # cls 3
-                    # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_conditional_20240807_103916/modelWeights",  # cls 31
-
-                    # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_151151/modelWeights",  # cls 3
-                    # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_151204/modelWeights",  # cls 31
+        for n_train in [10_000,]:  #[5_000, 10_000, 20_000, 40_000, 60_000, 80_000, 100_000, 120_000]:
+            for lr in [1e-4]:  # [1e-3, 1e-4]:
+                for model_epoch in [90, 100, 110, 120, 130, 140]:
+                    print(f"\n\nmodel_epoch = {model_epoch}")
                     
-                    # f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_182747/modelWeights_epoch_120",  # cls 3
-                    # f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_180210/modelWeights_epoch_120",  # cls 31
+                    now = datetime.now()
+                    timestamp = now.strftime("%Y%m%d_%H%M%S")
 
-                    f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_unconditional_20240809_044252/modelWeights_epoch_110",  # cls [3, 31]
+                    args["output_dir"] = (
+                        f"/data/engs-pnpl/lina4471/willett2023/phoneme_classifier/__PhonemeClassifier_bs_{batch_size}__lr_{lr}__train_on_only_synthetic_{timestamp}"
+                    )
+                    # args["generative_model_args_path"] = (
+                    #     "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_unconditional_20240801_082756/args.json"
+                    # )
+                    args["generative_model_weights_path"] = [
+                        # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_conditional_20240807_103730/modelWeights",  # cls 3
+                        # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_conditional_20240807_103916/modelWeights",  # cls 31
 
-                ]
-                args["generative_model_n_samples_train"] = n_train
-                args["generative_model_n_samples_val"] = 2_000
-                print(args["generative_model_weights_path"])
+                        # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_151151/modelWeights",  # cls 3
+                        # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_151204/modelWeights",  # cls 31
+                        
+                        # f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_182747/modelWeights_epoch_120",  # cls 3
+                        # f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_180210/modelWeights_epoch_120",  # cls 31
 
-                args["input_shape"] = (128, 8, 8)
-                args["lr"] = lr
-                args["batch_size"] = batch_size
-                args["transform"] = "softsign"
-                args["patience"] = 30
-                args["gaussian_smoothing_kernel_size"] = 20
-                args["gaussian_smoothing_sigma"] = 2.0
-                args["phoneme_cls"] = [3, 31]  # list(range(1, 40))
-                args["correctness_value"] = ["C"]
+                        # f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_unconditional_20240809_044252/modelWeights_epoch_110",  # cls [3, 31]
 
-                print(
-                    "\nTrain phoeneme classifier on SYNTHETIC data. Test on SYNTHETIC as well as REAL data."
-                )
 
-                main(args)
+                        # f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_latent_dim_experiment/VAE_latent_dim_512/modelWeights_epoch_{model_epoch}"
+
+
+                        f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_experiment_conditioning/VAE__conditioning_concat__phoneme_cls_[3, 31]/modelWeights_epoch_{model_epoch}"  # cond experiment
+
+                    ]
+                    args["generative_model_n_samples_train"] = n_train
+                    args["generative_model_n_samples_val"] = 2_000
+                    print(args["generative_model_weights_path"])
+
+                    args["input_shape"] = (128, 8, 8)
+                    args["lr"] = lr
+                    args["batch_size"] = batch_size
+                    args["transform"] = "softsign"
+                    args["patience"] = 30
+                    args["gaussian_smoothing_kernel_size"] = 20
+                    args["gaussian_smoothing_sigma"] = 2.0
+                    args["phoneme_cls"] = [3, 31]  # list(range(1, 40))
+                    args["correctness_value"] = ["C"]
+
+                    print(
+                        "\nTrain phoeneme classifier on SYNTHETIC data. Test on SYNTHETIC as well as REAL data."
+                    )
+
+                    main(args)
