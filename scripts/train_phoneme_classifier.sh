@@ -4,9 +4,9 @@
 #SBATCH --gres=gpu:v100:1
 #SBATCH --ntasks-per-node=4
 #SBATCH --mem-per-cpu=8G
-#SBATCH --time=10:00:00
+#SBATCH --time=12:00:00
 #SBATCH --job-name=train_p_classifier
-#SBATCH --partition=devel
+#SBATCH --partition=short
 #SBATCH --output=/home/lina4471/willett2023/slurm_out/train_phoneme_classifier.%j.out
 #SBATCH --mail-type=BEGIN,END
 #SBATCH --mail-user=anna.gerhaher@linacre.ox.ac.uk
