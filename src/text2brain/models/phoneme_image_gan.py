@@ -97,13 +97,11 @@ class PhonemeImageGAN(T2BGenInterface, nn.Module):
         lr_g: float,
         lr_d: float,
         n_critic: int = 5,
-        clip_value: float = 0.01,
         pool: str = "max",
-        smooth_labels: float = 0.0,  # default: no smoothing
-        noisy_labels: float = 0.0,  # default: no noising
         loss: str = "wasserstein",
     ):
         super(PhonemeImageGAN, self).__init__()
+        self.starting = True
 
         assert isinstance(phoneme_cls, list)
         if len(phoneme_cls) == 1:
@@ -133,14 +131,10 @@ class PhonemeImageGAN(T2BGenInterface, nn.Module):
         
         self.device = device
         self.n_critic = n_critic
-        self.clip_value = clip_value
         self.lr_g = lr_g
         self.lr_d = lr_d
         self.loss = loss
         print(f"self.loss = {self.loss}")
-
-        self.smooth_labels = smooth_labels
-        self.noisy_labels = noisy_labels
 
         self._g.apply(self._weights_init)
         self._d.apply(self._weights_init)
@@ -151,85 +145,114 @@ class PhonemeImageGAN(T2BGenInterface, nn.Module):
         # self.optim_d = optim.AdamW(self._d.parameters(), lr=self.lr_d)
         # self.optim_g = optim.AdamW(self._g.parameters(), lr=self.lr_g)
 
-        self.optim_d = optim.SGD(self._d.parameters(), lr=self.lr_d, momentum=0.9)
+        # self.optim_d = optim.SGD(self._d.parameters(), lr=self.lr_d, momentum=0.9)
+        # self.optim_g = optim.Adam(self._g.parameters(), lr=self.lr_g, betas=(0.5, 0.999))
+        
+        # self.optim_d = optim.RMSprop(self._d.parameters(), lr=self.lr_d)
+        # self.optim_g = optim.RMSprop(self._g.parameters(), lr=self.lr_g)
+
+        self.optim_d = optim.Adam(self._d.parameters(), lr=self.lr_d, betas=(0.5, 0.999))
         self.optim_g = optim.Adam(self._g.parameters(), lr=self.lr_g, betas=(0.5, 0.999))
+        
 
     def _weights_init(self, m):
-        if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d) or isinstance(m, nn.BatchNorm2d):
-            nn.init.normal_(m.weight.data, 0.0, 0.02)
+        # if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d) or isinstance(m, nn.BatchNorm2d):
+        if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d) or isinstance(m, nn.Linear):
+            nn.init.xavier_uniform_(m.weight)
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0.01)
+        elif isinstance(m, nn.BatchNorm2d):
+            nn.init.constant_(m.weight, 1)
+            nn.init.constant_(m.bias, 0)
 
-    def train_step(self, x, y):
-        X_real, y = x, y
-        y = y.to(self.device)
-        y = _get_indices_in_classes(y, torch.tensor(self.phoneme_cls, device=y.device)).to(y.device)
-        X_real = X_real.to(self.device)
+    def compute_gradient_penalty(self, real_samples, fake_samples, y):
+        # Random weight term for interpolation between real and fake samples
+        alpha = torch.randn((real_samples.size(0), 1, 1, 1), device=self.device).expand_as(real_samples)
 
-        batch_size = y.size(0)
+        # interpolated samples
+        interpolates = (alpha * real_samples + ((1 - alpha) * fake_samples)).requires_grad_(True)
 
-        # for name, param in self.named_parameters():
-        #     if param.grad is not None and "_g" in name:
-        #         print(f'{name}: {param.grad.norm().item()}')
+        # discriminator's output for interpolated samples
+        d_interpolates = self._d(interpolates, y)
 
+        # compute gradients w.r.t. interpolated samples
+        gradients = torch.autograd.grad(
+            outputs=d_interpolates,
+            inputs=interpolates,
+            grad_outputs=torch.ones(d_interpolates.size(), device=self.device),
+            create_graph=True,
+            retain_graph=True,
+            only_inputs=True
+        )[0]
+
+        # compute the gradient penalty
+        gradients = gradients.view(gradients.size(0), -1)
+        gradient_penalty = torch.mean(((gradients.norm(2, dim=1) - 1) ** 2))
+
+        return gradient_penalty
+
+
+    def train_step(self, dl):
         # update discriminator
+        losses_D = []
         for _ in range(self.n_critic):
+            X_real, y, _, _ = next(iter(dl))
+            X_real = X_real.to(self.device)
+            y = y.to(self.device)
+            y = _get_indices_in_classes(y, torch.tensor(self.phoneme_cls, device=y.device)).to(y.device)
+
             self._d.zero_grad()
 
             output_real = self._d(X_real, y)
-            noise = torch.randn(batch_size, self._g.latent_dim, device=self.device)
+            noise = torch.randn(y.size(0), self._g.latent_dim, device=self.device)
 
             X_fake = self._g(noise, y)
             output_fake = self._d(X_fake.detach(), y)
 
-            if self.loss == "wasserstein":
-                loss_D = -(torch.mean(output_real) - torch.mean(output_fake))
-            else:
-                real_labels = torch.ones(batch_size, 1, device=self.device)
-                smoothed_real_labels = smooth_labels(real_labels, smoothing=self.smooth_labels)
-                fake_labels = torch.zeros(batch_size, 1, device=self.device)
-
-                smoothed_real_labels = noisy_labels(smoothed_real_labels, flip_prob=self.noisy_labels)
-                fake_labels = noisy_labels(fake_labels, flip_prob=self.noisy_labels)
-                
-                loss_real = nn.BCEWithLogitsLoss()(output_real, smoothed_real_labels)
-                loss_fake = nn.BCEWithLogitsLoss()(output_fake, fake_labels)
-                
-                loss_D = loss_real + loss_fake
+            loss_D = -torch.mean(output_real) + torch.mean(output_fake)
+            
+            # compute gradient penalty
+            gradient_penalty = self.compute_gradient_penalty(X_real, X_fake.detach(), y)
+            
+            # add gradient penalty to the discriminator loss
+            lambda_gp = 10
+            loss_D += lambda_gp * gradient_penalty
 
             loss_D.backward()
+
+            # grad_norms = []
+            # for p in self._d.parameters():
+            #     if p.grad is not None:
+            #         grad_norms.append(p.grad.norm(2).item())
+            # print(f"Discriminator Gradient Norms: {grad_norms}")
+            
             self.optim_d.step()
+            losses_D.append(loss_D)
 
-            # weight clipping
-            if self.loss == "wasserstein":
-                for p in self._d.parameters():
-                    p.data.clamp_(-self.clip_value, self.clip_value)  #TODO also apply to generator
-
-            # Calculate discriminator accuracy
-            with torch.no_grad():
-                real_labels = torch.ones(batch_size, 1, device=self.device)
-                fake_labels = torch.zeros(batch_size, 1, device=self.device)
-                pred_real = (torch.sigmoid(output_real) >= 0.5).float()
-                pred_fake = (torch.sigmoid(output_fake) >= 0.5).float()
-
-                correct_real = (pred_real == real_labels).float().sum()
-                correct_fake = (pred_fake == fake_labels).float().sum()
-
-                accuracy_real = correct_real / batch_size
-                accuracy_fake = correct_fake / batch_size
-                acc_d = (accuracy_real + accuracy_fake) / 2
+        loss_D = sum(losses_D) / len(losses_D)
 
         # update generator
-        self._g.zero_grad()
-        output_fake = self._d(X_fake, y)
-        if self.loss == "wasserstein":
-            loss_G = -torch.mean(output_fake)
-        else:
-            real_labels = smooth_labels(torch.ones(batch_size, 1, device=self.device), self.smooth_labels)
-            loss_G = nn.BCEWithLogitsLoss()(output_fake, real_labels)
+        X_real, y, _, _ = next(iter(dl))
+        X_real = X_real.to(self.device)
+        y = y.to(self.device)
+        y = _get_indices_in_classes(y, torch.tensor(self.phoneme_cls, device=y.device)).to(y.device)
 
+        self._g.zero_grad()
+        noise = torch.randn(y.size(0), self._g.latent_dim, device=self.device)
+        X_fake = self._g(noise, y)
+        output_fake = self._d(X_fake, y)
+        loss_G = -torch.mean(output_fake)
         loss_G.backward()
+
+        # grad_norms = []
+        # for p in self._g.parameters():
+        #     if p.grad is not None:
+        #         grad_norms.append(p.grad.norm(2).item())
+        # print(f"Generator Gradient Norms: {grad_norms}")
+
         self.optim_g.step()
 
-        return loss_D, loss_G, acc_d
+        return loss_D, loss_G
 
     def generate(self, label: torch.Tensor):
         """Generate an image. Label is the class label, not the index."""
@@ -294,8 +317,7 @@ class PhonemeImageGAN(T2BGenInterface, nn.Module):
             phoneme_cls=phoneme_cls,
             device=args["device"],
             n_critic=5 if "n_critic" not in args.keys() else args["n_critic"],
-            clip_value=0.01 if "clip_value" not in args.keys() else args["clip_value"],
-            lr=1e-4 if "clip_value" not in args.keys() else args["clip_value"],
+            lr=1e-4 if "lr" not in args.keys() else args["lr"],
         )
         model.load_state_dict(torch.load(weights_path))
 
@@ -380,23 +402,23 @@ class Generator_4_64_32(nn.Module):
         dec_hidden_dim = 512
         self.dec_hidden_dim = dec_hidden_dim
 
-        self.fc = nn.Sequential(nn.Linear(input_dim, dec_hidden_dim * 2 * 1), nn.ReLU(inplace=True))
+        self.fc = nn.Sequential(nn.Linear(input_dim, dec_hidden_dim * 2 * 1), nn.LeakyReLU(0.2, inplace=True))
         self.model = nn.Sequential(
             nn.ConvTranspose2d(dec_hidden_dim, 256, 3, 2, 1, 1, bias=False),  # -> (256) x 4 x 2
             nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True),
+            nn.LeakyReLU(0.2, inplace=True),
             nn.ConvTranspose2d(256, 128, 3, 2, 1, 1, bias=False),  # -> (128) x 8 x 4
             nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
+            nn.LeakyReLU(0.2, inplace=True),
             nn.ConvTranspose2d(128, 64, 3, 2, 1, 1, bias=False),  # -> (64) x 16 x 8
             nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
+            nn.LeakyReLU(0.2, inplace=True),
             nn.ConvTranspose2d(64, 32, 3, 2, 1, 1, bias=False),  # -> (32) x 32 x 16
             nn.BatchNorm2d(32),
-            nn.ReLU(inplace=True),
+            nn.LeakyReLU(0.2, inplace=True),
             nn.ConvTranspose2d(32, 16, 3, 2, 1, 1, bias=False),  # -> (16) x 64 x 32
             nn.BatchNorm2d(16),
-            nn.ReLU(inplace=True),
+            nn.LeakyReLU(0.2, inplace=True),
             nn.ConvTranspose2d(16, 4, 3, 1, 1, bias=False),  # -> (4) x 64 x 32
             nn.Tanh(),
         )
@@ -436,20 +458,20 @@ class Discriminator_128_8_8(nn.Module):
 
         self.model = nn.Sequential(
             nn.Conv2d(input_dim, 64, 3, 1, 1, bias=False),  # -> (64) x 8 x 8
-            nn.BatchNorm2d(64),
+            # nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(2, 2),
             nn.Conv2d(64, 128, 3, 1, 1, bias=False),  # -> (128) x 4 x 4
-            nn.BatchNorm2d(128),
+            # nn.BatchNorm2d(128),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(2, 2),  # -> (128) x 2 x 2
             nn.Conv2d(128, 256, 3, 1, 1),  # -> (256) x 2 x 2
-            nn.BatchNorm2d(256),
+            # nn.BatchNorm2d(256),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(2, 2),  # -> (256) x 1 x 1
             nn.Flatten(),
             nn.Linear(256 * 1 * 1, 512),  # -> (512)
-            nn.BatchNorm1d(512),
+            # nn.BatchNorm1d(512),
             nn.ReLU(inplace=True),
             nn.Linear(512, 1),
         )
@@ -487,38 +509,65 @@ class Discriminator_4_64_32(nn.Module):
         if pool == "max":
             self.model = nn.Sequential(
                 nn.Conv2d(4, 16, 3, 1, 1, bias=False),  # -> (16) x 64 x 32
-                nn.BatchNorm2d(16),
+                # nn.BatchNorm2d(16),
                 nn.ReLU(inplace=True),
                 nn.MaxPool2d(2, 2), # -> (16) x 32 x 16
                 nn.Conv2d(16, 32, 3, 2, 1, bias=False),  # -> (32) x 16 x 8
-                nn.BatchNorm2d(32),
+                # nn.BatchNorm2d(32),
                 nn.ReLU(inplace=True),
                 nn.MaxPool2d(2, 2), # -> (32) x 8 x 4
                 nn.Conv2d(32, 64, 3, 2, 1, bias=False),  # -> (64) x 4 x 2
-                nn.BatchNorm2d(64),
+                # nn.BatchNorm2d(64),
                 nn.ReLU(inplace=True),
                 nn.Conv2d(64, 128, 3, 2, 1, bias=False),  # -> (128) x 2 x 1
-                nn.BatchNorm2d(128),
+                # nn.BatchNorm2d(128),
                 nn.ReLU(inplace=True),
             )
         elif pool == "avg":
             self.model = nn.Sequential(
                 nn.Conv2d(4, 16, 3, 1, 1, bias=False),  # -> (16) x 64 x 32
-                nn.BatchNorm2d(16),
+                # nn.BatchNorm2d(16),
                 nn.ReLU(inplace=True),
                 nn.AvgPool2d(2, 2), # -> (16) x 32 x 16
                 nn.Conv2d(16, 32, 3, 2, 1, bias=False),  # -> (32) x 16 x 8
-                nn.BatchNorm2d(32),
+                # nn.BatchNorm2d(32),
                 nn.ReLU(inplace=True),
                 nn.AvgPool2d(2, 2), # -> (32) x 8 x 4
                 nn.Conv2d(32, 64, 3, 2, 1, bias=False),  # -> (64) x 4 x 2
-                nn.BatchNorm2d(64),
+                # nn.BatchNorm2d(64),
                 nn.ReLU(inplace=True),
                 nn.Conv2d(64, 128, 3, 2, 1, bias=False),  # -> (128) x 2 x 1
-                nn.BatchNorm2d(128),
+                # nn.BatchNorm2d(128),
                 nn.ReLU(inplace=True),
             )
-        self.fc1 = nn.Linear(128 * 2 * 1, 512)
+        elif pool == "none":
+            self.model = nn.Sequential(
+                nn.Conv2d(4, 16, 3, 1, 1, bias=False),  # -> (16) x 64 x 32
+                # nn.InstanceNorm2d(16, affine=True),
+                nn.LeakyReLU(0.2, inplace=True),
+
+                nn.Conv2d(16, 32, 3, 2, 1, bias=False),  # -> (32) x 32 x 16
+                # nn.InstanceNorm2d(32, affine=True),
+                nn.LeakyReLU(0.2, inplace=True),
+
+                nn.Conv2d(32, 64, 3, 2, 1, bias=False),  # -> (64) x 16 x 8
+                # nn.InstanceNorm2d(64, affine=True),
+                nn.LeakyReLU(0.2, inplace=True),
+
+                nn.Conv2d(64, 128, 3, 2, 1, bias=False),  # -> (128) x 8 x 4
+                # nn.InstanceNorm2d(128, affine=True),
+                nn.LeakyReLU(0.2, inplace=True),
+
+                nn.Conv2d(128, 256, 3, 2, 1, bias=False),  # -> (64) x 4 x 2
+                # nn.InstanceNorm2d(256, affine=True),
+                nn.LeakyReLU(0.2, inplace=True),
+
+                nn.Conv2d(256, 256, 3, 2, 1, bias=False),  # -> (256) x 2 x 1
+                # nn.InstanceNorm2d(256, affine=True),
+                nn.LeakyReLU(0.2, inplace=True),
+            )
+
+        self.fc1 = nn.Linear(256 * 2 * 1, 512)
         self.fc2 = nn.Linear(512, 1)
         
 
