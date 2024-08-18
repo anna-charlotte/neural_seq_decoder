@@ -20,6 +20,7 @@ from neural_decoder.transforms import (
 )
 from text2brain.models.loss import ELBOLoss, GECOLoss
 from text2brain.models.vae import VAE, CondVAE, logvar_to_std
+from text2brain.models.vae_hierarchical import HierarchicalCondVAE
 from text2brain.visualization import plot_brain_signal_animation, plot_tsne, plot_means_and_stds, plot_elbo_loss, plot_geco_loss, plot_single_image, plot_original_vs_reconstructed_image
 from utils import dump_args, load_args, load_pkl, set_seeds
 
@@ -175,7 +176,18 @@ def main(args: dict) -> None:
         transform=transform,
     )
 
-    if len(phoneme_cls) == 1:
+    if args["hierarchical"]:
+        model = HierarchicalCondVAE(
+            latent_dims=args["hierarchical_latent_dims"],
+            input_shape=tuple(args["input_shape"]),
+            classes=phoneme_cls,
+            device=device,
+            dec_hidden_dim=args["dec_hidden_dim"],
+            conditioning=args["conditioning"],
+            n_layers_film=args["n_layers_film"],
+            # dec_emb_dim=dec_emb_dim,
+        )
+    elif len(phoneme_cls) == 1:
         model = VAE(
             latent_dim=args["latent_dim"], 
             input_shape=tuple(args["input_shape"]), 
@@ -195,10 +207,14 @@ def main(args: dict) -> None:
             # dec_emb_dim=args["dec_emb_dim"],
         )
     args["model_class"] = model.__class__.__name__
+    print(f"model = {model}")
 
     optimizer = optim.AdamW(model.parameters(), lr=args["lr"])
     if args["loss"] == "elbo":
-        loss_fn = ELBOLoss(reduction=args["loss_reduction"])
+        loss_fn = ELBOLoss(
+            reduction=args["loss_reduction"],
+            beta=args["elbo_beta"]
+        )
     elif args["loss"] == "geco":
         loss_fn = GECOLoss(
             goal=args["geco_goal"],
@@ -232,7 +248,7 @@ def main(args: dict) -> None:
             loss_fn.beta = all_betas[-1]
     
     # vae_dir = "vae_conditional" if isinstance(model, CondVAE) else "vae"
-    plot_dir = args["p[lot_dir]"]
+    plot_dir = args["plot_dir"]
     plot_dir.mkdir(parents=True, exist_ok=True)
     print(f"plot_dir = {plot_dir}")
     args["plot_dir"] = str(plot_dir)
@@ -268,6 +284,15 @@ def main(args: dict) -> None:
                 X_recon, mu, logvar = model(X)
             elif isinstance(model, CondVAE):
                 X_recon, mu, logvar = model(X, y)
+            elif isinstance(model, HierarchicalCondVAE):
+                X_recon, mus, logvar = model(X, y)
+                print(f"len(mus) = {len(mus)}")
+                print(f"len(mus) = {len(mus)}")
+                for mu in mus:
+                    print(f"mu.size() = {mu.size()}")
+                for logvar in logvar:
+                    print(f"logvar.size() = {logvar.size()}")
+                
 
             if epoch % 10 == 0:
                 all_mu.append(mu.detach().cpu().numpy())
@@ -420,74 +445,160 @@ if __name__ == "__main__":
     for input_shape in [[4, 64, 32],]:  # [[4, 64, 32], [1, 256, 32], [128, 8, 8]]:
         for loss in ["geco"]:  # ["elbo", "geco"]:
             for lr in [1e-3]:  # [1e-3, 1e-4, 1e-5]:
-                for n_layers_film in [2]:  #, 1]:
+                for n_layers_film in [None]:  #, 1]:
                     for geco_goal in [0.05]:  # , 0.037]:
                         for geco_step_size in [1e-2]:  # , 1e-3, 1e-4]:
-                            for geco_beta_init in [1e-3]:  # , 1e-5, 1e-7]:
-                                for dec_emb_dim in [None]:  # [8, 16, 32]:
+                            for beta_init in [1e-3]:  # 1e-3]:  # , 1e-5, 1e-7]:
+                                for dec_emb_dim in [16, 32, 64, 128, 8]:
                                     for geco_beta_max in [1e-1]:
-                                        for conditioning in ["concat", "film", None]:
+                                        for conditioning in ["concat"]:
                                             for latent_dim in [256]:  # , 128, 100]:
-                                                for dec_hidden_dim in [256]:
-                                                    for phoneme_cls in [[3,], [31,], [3, 31],]:
-                                                        if (conditioning is None and len(phoneme_cls) > 1) or (isinstance(conditioning, str) and len(phoneme_cls) == 1):
-                                                            continue
+                                                for dec_hidden_dim in [256, 512]:
+                                                    for phoneme_cls in [[3, 31],]:
+                                                        if ((dec_emb_dim == 8 or dec_emb_dim == 64) and dec_hidden_dim == 512)  or dec_hidden_dim == 128:
+                                                                
 
-                                                        now = datetime.now()
-                                                        timestamp = now.strftime("%Y%m%d_%H%M%S")
+                                                            args = {}
 
-                                                        args = {}
-                                                        args["load_from_checkpoint"] = False
+                                                            args["hierarchical"] = False
+                                                            # args["hierarchical_latent_dims"] = [64, 32, 16]
 
-                                                        args["n_layers_film"] = n_layers_film
+                                                            now = datetime.now()
+                                                            timestamp = now.strftime("%Y%m%d_%H%M%S")
 
-                                                        args["seed"] = 0
-                                                        args["device"] = "cuda"
-                                                        args["batch_size"] = 64
-                                                        args["phoneme_cls"] = [phoneme_cls] if isinstance(phoneme_cls, int) else phoneme_cls  # list(range(1, 40))
-                                                        args["conditioning"] = conditioning
+                                                            args["load_from_checkpoint"] = False
 
-                                                        args["loss"] = loss
-                                                        args["loss_reduction"] = "mean"
-                                                        if loss == "geco":
-                                                            args["geco_goal"] = geco_goal
-                                                            args["geco_beta_init"] = geco_beta_init
-                                                            args["geco_step_size"] = geco_step_size
-                                                            args["geco_beta_max"] = geco_beta_max
+                                                            args["n_layers_film"] = n_layers_film
 
-                                                        args["input_shape"] = input_shape
-                                                        args["latent_dim"] = latent_dim
-                                                        args["dec_hidden_dim"] = dec_hidden_dim
-                                                        args["dec_emb_dim"] = dec_emb_dim
+                                                            args["seed"] = 0
+                                                            args["device"] = "cuda"
+                                                            args["batch_size"] = 64
+                                                            args["phoneme_cls"] = [phoneme_cls] if isinstance(phoneme_cls, int) else phoneme_cls  # list(range(1, 40))
+                                                            args["conditioning"] = conditioning
 
-                                                        args["start_epoch"] = 0
-                                                        args["n_epochs"] = 150
-                                                        args["lr"] = lr
+                                                            args["loss"] = loss
+                                                            args["loss_reduction"] = "mean"
+                                                            if loss == "elbo":
+                                                                args["elbo_beta"] = beta_init
+                                                            if loss == "geco":
+                                                                args["geco_goal"] = geco_goal
+                                                                args["geco_beta_init"] = beta_init
+                                                                args["geco_step_size"] = geco_step_size
+                                                                args["geco_beta_max"] = geco_beta_max
 
-                                                        args["transform"] = "softsign"
-                                                        args["gaussian_smoothing_kernel_size"] = 20
-                                                        args["gaussian_smoothing_sigma"] = 2.0
+                                                            args["input_shape"] = input_shape
+                                                            args["latent_dim"] = latent_dim
+                                                            args["dec_hidden_dim"] = dec_hidden_dim
+                                                            args["dec_emb_dim"] = dec_emb_dim
 
-                                                        args["train_set_path"] = (
-                                                            "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
-                                                        )
-                                                        args["val_set_path"] = (
-                                                            "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_VAL_SPLIT.pkl"
-                                                        )
-                                                        args["test_set_path"] = (
-                                                            "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_TEST_SPLIT.pkl"
-                                                        )
-                                                        # vae_dir_name = "VAE_unconditional" if len(args["phoneme_cls"]) > 1 else "VAE_conditional"
-                                                        args["output_dir"] = (
-                                                            f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_experiment_conditioning/VAE__conditioning_{args['conditioning']}__phoneme_cls_{args['phoneme_cls']}"
-                                                        )
-                                                        args["plot_dir"] = (
-                                                            ROOT_DIR
-                                                            / "evaluation"
-                                                            / "vae_experiments"
-                                                            / "run_20240816__VAE_experiment_conditioning"
-                                                            / f"vae__conditioning_{args['conditioning']}__phoneme_cls_{args['phoneme_cls']}"
-                                                            # / f"reconstructed_images_model_input_shape_{'_'.join(map(str, args['input_shape']))}__cond_{args['conditioning']}__dec_emb_dim_{args['dec_emb_dim']}__latent_dim_{args['latent_dim']}__loss_{args['loss']}_{args['geco_goal']}_{args['geco_step_size']}_{args['geco_beta_init']}_{args['geco_beta_max']}__lr_{args['lr']}__gs_{args['gaussian_smoothing_kernel_size']}_{args['gaussian_smoothing_sigma']}__bs_{batch_size}__phoneme_cls_{'_'.join(map(str, phoneme_cls))}__dec_hid_dim_{args['dec_hidden_dim']}"
-                                                        )
+                                                            args["start_epoch"] = 0
+                                                            args["n_epochs"] = 150
+                                                            args["lr"] = lr
 
-                                                        main(args)
+                                                            args["transform"] = "softsign"
+                                                            args["gaussian_smoothing_kernel_size"] = 20
+                                                            args["gaussian_smoothing_sigma"] = 2.0
+
+                                                            args["train_set_path"] = (
+                                                                "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
+                                                            )
+                                                            args["val_set_path"] = (
+                                                                "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_VAL_SPLIT.pkl"
+                                                            )
+                                                            args["test_set_path"] = (
+                                                                "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_TEST_SPLIT.pkl"
+                                                            )
+                                                            # vae_dir_name = "VAE_unconditional" if len(args["phoneme_cls"]) > 1 else "VAE_conditional"
+                                                            # args["output_dir"] = (
+                                                            #     f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_hierarchical/vae__hierarchical_latent_dims_{'_'.join(map(str, args['hierarchical_latent_dims']))}"
+                                                            # )
+                                                            args["output_dir"] = (
+                                                                f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_experiment_conditioning/VAE__conditioning_concat__phoneme_cls_3_31__dec_emb_dim_{args['dec_emb_dim']}__dec_hidden_dim_{args['dec_hidden_dim']}"
+                                                            )
+                                                            args["plot_dir"] = (
+                                                                ROOT_DIR
+                                                                / "evaluation"
+                                                                / "vae_experiments"  # "vae_hierarchical"
+                                                                / "run_20240816__VAE_experiment_conditioning"  # "run_20240817__hierarchical_vae"
+                                                                / f"vae__conditioning_concat__phoneme_cls_3_31__dec_emb_dim_{args['dec_emb_dim']}__dec_hidden_dim_{args['dec_hidden_dim']}"  # f"vae__hierarchical_latent_dims_{'_'.join(map(str, args['hierarchical_latent_dims']))}"
+                                                            )
+
+                                                            main(args)
+
+
+
+
+    # for input_shape in [[4, 64, 32],]:  # [[4, 64, 32], [1, 256, 32], [128, 8, 8]]:
+    #     for loss in ["elbo", "geco"]:  # ["elbo", "geco"]:
+    #         for lr in [1e-3]:  # [1e-3, 1e-4, 1e-5]:
+    #             for n_layers_film in [2]:  #, 1]:
+    #                 for geco_goal in [0.05]:  # , 0.037]:
+    #                     for geco_step_size in [1e-2]:  # , 1e-3, 1e-4]:
+    #                         for beta_init in [1.0, 1e-1, 1e-2, 1e-3, 1e-3]:  # 1e-3]:  # , 1e-5, 1e-7]:
+    #                             for dec_emb_dim in [None]:  # [8, 16, 32]:
+    #                                 for geco_beta_max in [1e-1]:
+    #                                     for conditioning in ["film"]:
+    #                                         for latent_dim in [256]:  # , 128, 100]:
+    #                                             for dec_hidden_dim in [256]:
+    #                                                 for phoneme_cls in [[3, 31],]:
+
+    #                                                     now = datetime.now()
+    #                                                     timestamp = now.strftime("%Y%m%d_%H%M%S")
+
+    #                                                     args = {}
+    #                                                     args["load_from_checkpoint"] = False
+
+    #                                                     args["n_layers_film"] = n_layers_film
+
+    #                                                     args["seed"] = 0
+    #                                                     args["device"] = "cuda"
+    #                                                     args["batch_size"] = 64
+    #                                                     args["phoneme_cls"] = [phoneme_cls] if isinstance(phoneme_cls, int) else phoneme_cls  # list(range(1, 40))
+    #                                                     args["conditioning"] = conditioning
+
+    #                                                     args["loss"] = loss
+    #                                                     args["loss_reduction"] = "mean"
+    #                                                     if loss == "elbo":
+    #                                                         args["elbo_beta"] = beta_init
+    #                                                     if loss == "geco":
+    #                                                         args["geco_goal"] = geco_goal
+    #                                                         args["geco_beta_init"] = beta_init
+    #                                                         args["geco_step_size"] = geco_step_size
+    #                                                         args["geco_beta_max"] = geco_beta_max
+
+    #                                                     args["input_shape"] = input_shape
+    #                                                     args["latent_dim"] = latent_dim
+    #                                                     args["dec_hidden_dim"] = dec_hidden_dim
+    #                                                     args["dec_emb_dim"] = dec_emb_dim
+
+    #                                                     args["start_epoch"] = 0
+    #                                                     args["n_epochs"] = 150
+    #                                                     args["lr"] = lr
+
+    #                                                     args["transform"] = "softsign"
+    #                                                     args["gaussian_smoothing_kernel_size"] = 20
+    #                                                     args["gaussian_smoothing_sigma"] = 2.0
+
+    #                                                     args["train_set_path"] = (
+    #                                                         "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
+    #                                                     )
+    #                                                     args["val_set_path"] = (
+    #                                                         "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_VAL_SPLIT.pkl"
+    #                                                     )
+    #                                                     args["test_set_path"] = (
+    #                                                         "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_TEST_SPLIT.pkl"
+    #                                                     )
+    #                                                     # vae_dir_name = "VAE_unconditional" if len(args["phoneme_cls"]) > 1 else "VAE_conditional"
+    #                                                     args["output_dir"] = (
+    #                                                         f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_experiment_elbo_vs_geco/VAE__loss_{args['loss']}__beta_init_{args['elbo_beta']}"
+    #                                                     )
+    #                                                     args["plot_dir"] = (
+    #                                                         ROOT_DIR
+    #                                                         / "evaluation"
+    #                                                         / "vae_experiments"
+    #                                                         / "run_20240816__VAE_experiment_elbo_vs_geco"
+    #                                                         / f"vae__loss_{args['loss']}__beta_init_{args['elbo_beta']}"
+    #                                                         # / f"reconstructed_images_model_input_shape_{'_'.join(map(str, args['input_shape']))}__cond_{args['conditioning']}__dec_emb_dim_{args['dec_emb_dim']}__latent_dim_{args['latent_dim']}__loss_{args['loss']}_{args['geco_goal']}_{args['geco_step_size']}_{args['geco_beta_init']}_{args['geco_beta_max']}__lr_{args['lr']}__gs_{args['gaussian_smoothing_kernel_size']}_{args['gaussian_smoothing_sigma']}__bs_{batch_size}__phoneme_cls_{'_'.join(map(str, phoneme_cls))}__dec_hid_dim_{args['dec_hidden_dim']}"
+    #                                                     )
+
+    #                                                     main(args)
