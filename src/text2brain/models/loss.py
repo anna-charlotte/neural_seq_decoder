@@ -27,14 +27,15 @@ def compute_kl_divergence(logvar, mu, reduction: str):
 
 
 class ELBOLoss(nn.Module):
-    def __init__(self, reduction: str):
+    def __init__(self, reduction: str, beta: float = 0.1):
         super(ELBOLoss, self).__init__()
         self.reduction = reduction
+        self.beta = beta
 
     def forward(self, reconstructed_x, x, mu, logvar) -> LossResults:
         mse = F.mse_loss(reconstructed_x, x, reduction=self.reduction)
         kld = compute_kl_divergence(logvar=logvar, mu=mu, reduction=self.reduction)
-        loss = mse + kld
+        loss = mse + self.beta * kld
         return LossResults(mse=mse, kld=kld, loss=loss)
 
 
