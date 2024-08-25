@@ -14,7 +14,9 @@ from torch.utils.data import DataLoader
 
 from data.dataset import SyntheticPhonemeDataset
 from neural_decoder.phoneme_utils import ROOT_DIR
+from text2brain.models.conditioning_film import FiLM
 from text2brain.models.model_interface import T2BGenInterface
+from text2brain.models.utils import labels_to_indices
 from text2brain.models.vae_interface import VAEBase
 from text2brain.visualization import plot_single_image
 from utils import load_args
@@ -33,13 +35,13 @@ class DecoderInterface(nn.Module):
         self.dec_hidden_dim = dec_hidden_dim
         self.conditioning = conditioning
 
-    def _label_to_indices(self, labels, classes: List[int]):
-        indices = []
-        classes_torch = torch.tensor(classes).to(labels.device)
-        for label in labels:
-            index = (classes_torch == label).nonzero(as_tuple=True)[0].item()
-            indices.append(index)
-        return torch.tensor(indices, dtype=torch.long, device=labels.device).view(labels.size())
+    # def label_to_indices(self, labels, classes: List[int]):
+    #     indices = []
+    #     classes_torch = torch.tensor(classes).to(labels.device)
+    #     for label in labels:
+    #         index = (classes_torch == label).nonzero(as_tuple=True)[0].item()
+    #         indices.append(index)
+    #     return torch.tensor(indices, dtype=torch.long, device=labels.device).view(labels.size())
 
 
 
@@ -116,7 +118,7 @@ class Decoder_1_256_32(DecoderInterface):
     def forward(self, z: torch.Tensor, labels: Optional[torch.Tensor] = None):
         if self.conditioning is not None:
             assert z.size(0) == labels.size(0)
-            y_indices = self._label_to_indices(labels, self.classes)
+            y_indices = labels_to_indices(labels, self.classes)
             
             if self.conditioning == "concat":
                 y_emb = self.embedding(y_indices)
@@ -156,7 +158,7 @@ class Encoder_4_64_32(nn.Module):
         self.fc_mu = nn.Linear(512 * 2 * 1, latent_dim)
         self.fc_logvar = nn.Linear(512 * 2 * 1, latent_dim)
 
-    def forward(self, x) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x.view(-1, 4, 64, 32)
         assert x[0].size() == (4, 64, 32)
         h = self.model(x)
@@ -203,7 +205,7 @@ class Decoder_4_64_32(DecoderInterface):
 
         if self.conditioning is not None:
             assert z.size(0) == labels.size(0)
-            y_indices = self._label_to_indices(labels, self.classes)
+            y_indices = labels_to_indices(labels, self.classes)
             
             if self.conditioning == "concat":
                 y_emb = self.embedding(y_indices)
@@ -284,7 +286,7 @@ class Decoder_128_8_8(DecoderInterface):
         
         if self.conditioning is not None:
             assert z.size(0) == labels.size(0)
-            y_indices = self._label_to_indices(labels, self.classes)
+            y_indices = labels_to_indices(labels, self.classes)
             
             if self.conditioning == "concat":
                 y_emb = self.embedding(y_indices)
@@ -302,42 +304,17 @@ class Decoder_128_8_8(DecoderInterface):
         return h
 
 
-class FiLM(nn.Module):
-    def __init__(self, in_features: int, conditioning_dim: int, n_layers: int):
-        super(FiLM, self).__init__()
-
-        if n_layers not in [1, 2]:
-            raise ValueError(f"n_layers for FiLM must be either 1 or 2, given: {n_layers}")
-        
-        if n_layers == 1:
-            self.scale_network = nn.Sequential(
-                nn.Linear(conditioning_dim, in_features)
-            )
-            self.shift_network = nn.Sequential(
-                nn.Linear(conditioning_dim, in_features)
-            )
-        elif n_layers == 2:
-            self.scale_network = nn.Sequential(
-                nn.Linear(conditioning_dim, int(in_features / 2)),
-                nn.ReLU(),
-                nn.Linear(int(in_features / 2), in_features)
-            )
-            self.shift_network = nn.Sequential(
-                nn.Linear(conditioning_dim, int(in_features / 2)),
-                nn.ReLU(),
-                nn.Linear(int(in_features / 2), in_features)
-            )
-    
-    def forward(self, x, c):
-        gamma = self.scale_network(c)
-        beta = self.shift_network(c)
-
-        return gamma * x + beta
-
-
 class CondVAE(VAEBase, T2BGenInterface):
     def __init__(
-        self, latent_dim: int, input_shape: Tuple[int, int, int], classes: list, conditioning: Literal["concat", "film"], device: str = "cpu", dec_emb_dim: int = None, n_layers_film: int = None, dec_hidden_dim: int = 512
+        self, 
+        latent_dim: int, 
+        input_shape: Tuple[int, int, int], 
+        classes: list, 
+        conditioning: Literal["concat", "film"], 
+        device: str = "cpu", 
+        dec_emb_dim: int = None, 
+        n_layers_film: int = None, 
+        dec_hidden_dim: int = 512
     ):
         super(CondVAE, self).__init__(latent_dim, input_shape, classes, device)
         input_shape = tuple(input_shape)
@@ -414,7 +391,7 @@ class CondVAE(VAEBase, T2BGenInterface):
 
         with torch.no_grad():
             for label in classes:
-                # label = self.decoder._label_to_indices(labels=[kls], classes=classes)
+                # label = self.decoder.labels_to_indices(labels=[kls], classes=classes)
                 label = torch.tensor([label]).to(self.device)
                 
                 for _ in range(n_per_class):
@@ -489,7 +466,7 @@ class VAE(VAEBase, T2BGenInterface):
         assert isinstance(classes, list)
         assert len(classes) == 1
 
-        label = torch.tensor([classes[-1]]).to(self.device)
+        label = torch.tensor([self.classes[-1]]).to(self.device)
         neural_windows = []
         phoneme_labels = []
 

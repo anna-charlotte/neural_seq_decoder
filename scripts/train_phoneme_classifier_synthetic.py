@@ -140,6 +140,8 @@ def main(args: dict) -> None:
 
     train_ds_syn = SyntheticPhonemeDataset.combine_datasets(datasets=datasets)
     assert len(train_ds_syn) == args["generative_model_n_samples_train"]
+    print(f"train_ds_syn.classes = {train_ds_syn.classes}")
+    print(f"phoneme_classes = {phoneme_classes}")
     assert train_ds_syn.classes == phoneme_classes
     train_dl_syn = DataLoader(
         train_ds_syn,
@@ -237,6 +239,7 @@ def main(args: dict) -> None:
         patience=args["patience"],
         model_classes=phoneme_classes,
     )
+    print(f"output.keys() = {output.keys()}")
 
 
 if __name__ == "__main__":
@@ -250,12 +253,58 @@ if __name__ == "__main__":
     args["test_set_path"] = str(data_dir / "rnn_test_set_with_logits_TEST_SPLIT.pkl")
     args["n_epochs"] = 100
 
+    vae_exp_latent_dim = True
+
+    if vae_exp_latent_dim:
+
+        model_dir = Path("/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_latent_dim_experiment")
+        lat_dim2epoch = {32: 190, 64: 190, 128: 170, 256: 150, 512: 170}
+        for latent_dim, epoch in lat_dim2epoch.items():
+            args["output_dir"] = (
+                f"/data/engs-pnpl/lina4471/willett2023/phoneme_classifier/__PhonemeClassifier_bs_64__lr_1e-4__train_on_only_synthetic__latent_dimexp"
+            )
+            
+            args["generative_model_weights_path"] = str(model_dir / f"VAE__latent_dim_{latent_dim}_cond_film/modelWeights_epoch_{epoch}")
+            args["generative_model_n_samples_train"] = 10_000
+            args["generative_model_n_samples_val"] = 2_000
+            args["generative_model_n_samples_test"] = 2_000
+            print(args["generative_model_weights_path"])
+
+            args["input_shape"] = (128, 8, 8)
+            args["lr"] = 1e-4
+            args["batch_size"] = 64
+            args["transform"] = "softsign"
+            args["patience"] = 30
+            args["gaussian_smoothing_kernel_size"] = 20
+            args["gaussian_smoothing_sigma"] = 2.0
+            args["phoneme_cls"] = [3, 31]
+            args["correctness_value"] = ["C"]
+
+            print(
+                "\nTrain phoeneme classifier on SYNTHETIC data. Test on SYNTHETIC as well as REAL data."
+            )
+
+            main(args)
+
+
+    # # model_path = Path("/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_latent_dim_experiment/VAE__latent_dim_32")
+    # model_path_3 = Path("/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_experiment_conditioning/VAE__conditioning_None__phoneme_cls_[3]")
+    # model_path_31 = Path("/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_experiment_conditioning/VAE__conditioning_None__phoneme_cls_[31]")
 
     for batch_size in [64]:
-        for n_train in [10_000,]:  #[5_000, 10_000, 20_000, 40_000, 60_000, 80_000, 100_000, 120_000]:
+        for n_train in [10_000]:  # [5_000, 10_000, 20_000, 30_000, 40_000, 60_000, 80_000, 100_000, 120_000]:
             for lr in [1e-4]:  # [1e-3, 1e-4]:
-                for model_epoch in [90, 100, 110, 120, 130, 140]:
-                    print(f"\n\nmodel_epoch = {model_epoch}")
+                for model_epoch in [90, 100, 110, 120, 130, 140]:  # [850, 900, 950, 1000, 1050, 1100, 1150, 1200, 1250, 1300, 1350, 1400, 1450, 1500, 1550, 1600, 1650, 1700, 1750, 1800, 1850, 1900, 1950, ]:  # [850, 900, 950]:  
+                # for gen_path in [file for file in model_path_3.glob('*modelWeights*') if file.is_file()]:
+                    # print(f"\ngen_path = {gen_path}")
+
+                    # file_name = gen_path.name
+                    # print(f"file_name = {file_name}")
+
+                    # gen_path_3 = str(gen_path)
+                    # gen_path_31 = str(model_path_31 / file_name)
+                    # print(f"gen_path_3 = {gen_path_3}")
+                    # print(f"gen_path_31 = {gen_path_31}")
                     
                     now = datetime.now()
                     timestamp = now.strftime("%Y%m%d_%H%M%S")
@@ -267,6 +316,9 @@ if __name__ == "__main__":
                     #     "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_unconditional_20240801_082756/args.json"
                     # )
                     args["generative_model_weights_path"] = [
+                        # gen_path_3,
+                        # gen_path_31
+                        # VAES
                         # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_conditional_20240807_103730/modelWeights",  # cls 3
                         # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_conditional_20240807_103916/modelWeights",  # cls 31
 
@@ -279,14 +331,29 @@ if __name__ == "__main__":
                         # f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_unconditional_20240809_044252/modelWeights_epoch_110",  # cls [3, 31]
 
 
+                        # # VAE experiment latent_dim
                         # f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_latent_dim_experiment/VAE_latent_dim_512/modelWeights_epoch_{model_epoch}"
 
+                        
+                        # # VAE experiment conditioning
+                        f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_experiment_conditioning/VAE__conditioning_concat__phoneme_cls_3_31__dec_emb_dim_8__dec_hidden_dim_256/modelWeights_epoch_{model_epoch}"  # cond experiment
 
-                        f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_experiment_conditioning/VAE__conditioning_concat__phoneme_cls_[3, 31]/modelWeights_epoch_{model_epoch}"  # cond experiment
+
+                        # GAN
+                        # f"/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/test__PhonemeImageGAN_20240818_173938__phoneme_cls_3_31/modelWeights_1000"  # GAN classes 3, 31
+                        # f"/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/test__PhonemeImageGAN_20240818_173804__phoneme_cls_3_31/modelWeights_{model_epoch}"
+                        # f"/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/test__PhonemeImageGAN_20240819_110045__phoneme_cls_3_31/modelWeights_{model_epoch}"
+
+                        # f"/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/test__PhonemeImageGAN_20240819_120647__phoneme_cls_3/modelWeights_{model_epoch}",
+                        # f"/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/test__PhonemeImageGAN_20240819_235138__phoneme_cls_31/modelWeights_{model_epoch}"
+
+                        # f"/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/test__PhonemeImageGAN_20240818_234931__phoneme_cls_3/modelWeights_{model_epoch}",
+                        # f"/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/test__PhonemeImageGAN_20240819_101505__phoneme_cls_31/modelWeights_{model_epoch}"
 
                     ]
                     args["generative_model_n_samples_train"] = n_train
                     args["generative_model_n_samples_val"] = 2_000
+                    args["generative_model_n_samples_test"] = 2_000
                     print(args["generative_model_weights_path"])
 
                     args["input_shape"] = (128, 8, 8)

@@ -2,6 +2,12 @@ import numpy as np
 import torch
 from scipy.signal import correlate2d
 from scipy.stats import multivariate_normal
+from sklearn.utils import resample
+from sklearn.metrics import roc_auc_score
+from typing import Tuple
+
+from scipy.stats import mannwhitneyu
+
 
 from text2brain.models.vae_interface import VAEBase
 
@@ -53,3 +59,39 @@ def compute_likelihood(mean: torch.Tensor, logvar: torch.Tensor, x: torch.Tensor
     mvn = multivariate_normal(mean.numpy(), cov.numpy())
 
     return mvn.logpdf(x.numpy())
+
+
+def compute_auroc_with_stderr(y_true: np.ndarray, y_pred: np.ndarray, n_iters: int = 1_000) -> Tuple[np.ndarray, np.ndarray]:
+    auroc_scores = []
+    for _ in range(n_iters):
+        y_true_bootstrap, y_pred_bootstrap = resample(y_true, y_pred)
+    
+        auroc = roc_auc_score(y_true_bootstrap, y_pred_bootstrap)
+        auroc_scores.append(auroc)
+
+    mean_auroc = np.mean(auroc_scores)
+    std_auroc = np.std(auroc_scores, ddof=1)
+    sem_auroc = std_auroc / np.sqrt(len(auroc_scores))
+
+    return mean_auroc, sem_auroc
+    # scipy.stats.mannwhitneyu(x,y, alternative='two-sided')
+    # scipy.stats.ttest_ind(x, y, equal_var=False, alternative='two-sided')
+
+
+def compute_man_whitney(y_true: np.ndarray, y_pred_1: np.ndarray, y_pred_2: np.ndarray, n_iters: int = 1_000) -> Tuple[np.ndarray, np.ndarray]:
+    auroc_scores_1 = []
+    auroc_scores_2 = []
+
+    for _ in range(n_iters):
+        y_true_bootstrap, y_pred_1_bootstrap = resample(y_true, y_pred_1)
+        auroc_1 = roc_auc_score(y_true_bootstrap, y_pred_1_bootstrap)
+        auroc_scores_1.append(auroc_1)
+
+        y_true_bootstrap, y_pred_2_bootstrap = resample(y_true, y_pred_2)
+        auroc_2 = roc_auc_score(y_true_bootstrap, y_pred_2_bootstrap)
+        auroc_scores_2.append(auroc_2)
+
+    stat, p_value = mannwhitneyu(auroc_scores_1, auroc_scores_2, alternative='two-sided')
+
+    return stat, p_value
+    # scipy.stats.ttest_ind(x, y, equal_var=False, alternative='two-sided')

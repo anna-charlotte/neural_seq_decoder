@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
@@ -10,6 +10,7 @@ from sklearn.manifold import TSNE
 
 from neural_decoder.neural_decoder_trainer import get_dataset_loaders
 from neural_decoder.phoneme_utils import PHONE_DEF, ROOT_DIR
+from evaluation import compute_auroc_with_stderr
 
 
 def plot_neural_window(
@@ -192,17 +193,26 @@ def plot_phoneme_distribution(
     plt.savefig(out_file)
 
 
-def plot_tsne(vectors: List[np.ndarray], title: str, out_file):
-    # Assuming `latent_vectors` is a numpy array of shape (num_samples, latent_dim)
-
+def plot_tsne(vectors: List[np.ndarray], labels: List[int], title: str, out_file: Path) -> None:
     stacked_vectors = np.concatenate(vectors, axis=0)
+
     tsne = TSNE(n_components=2)
     latent_2d = tsne.fit_transform(stacked_vectors)
 
-    plt.scatter(latent_2d[:, 0], latent_2d[:, 1], alpha=0.5)
+    labels = np.array(labels)
+    unique_classes = np.unique(labels)
+
+    plt.figure(figsize=(10, 10))
+    for cls in unique_classes:
+        idx = labels == cls
+        plt.scatter(latent_2d[idx, 0], latent_2d[idx, 1], alpha=0.6, s=3, label=f'Class {PHONE_DEF[cls - 1]}')
+    
     plt.title(title)
     plt.xlabel('Dimension 1')
     plt.ylabel('Dimension 2')
+
+    plt.legend(title="Phoneme classes")
+
     print(f"Save tsne plot to: {out_file}")
     plt.savefig(out_file)
 
@@ -406,3 +416,32 @@ if __name__ == "__main__":
             plot_brain_signal_animation(signal=signal, save_path=save_path)
             break
         break
+
+
+def plot_aurocs_with_error_bars(y_true: np.ndarray, model2pred: Dict[str, np.ndarray], out_file: Path, x_label: str = 'Model', title: str = 'AUROC Scores with Error Bars') -> None:
+    aurocs = []
+    errs = []
+    model_names = []
+
+    for model_name, pred in model2pred.items():
+        auroc, err = compute_auroc_with_stderr(y_true=y_true, y_pred=pred, n_iters=1_000)
+        aurocs.append(auroc)
+        errs.append(err)
+        model_names.append(model_name)
+
+    aurocs = np.array(aurocs)
+    errs = np.array(errs)
+
+    plt.figure(figsize=(10, 6))
+    plt.bar(model_names, aurocs, yerr=errs, capsize=5, color='skyblue', edgecolor='black')
+    plt.xlabel(x_label)
+    plt.ylabel('AUROC')
+    plt.title(title)
+    # plt.ylim(0, 1)
+    plt.xticks(rotation=45, ha='right')
+
+    plt.tight_layout()
+    plt.savefig(out_file)
+    plt.close()
+
+

@@ -120,7 +120,7 @@ class Stats:
     all_preds_np_argmax: np.ndarray
 
 
-def eval_phoneme_classifier(model, dl, criterion, device):
+def eval_phoneme_classifier(model, dl, criterion, device, compute_err: bool = False):
     n_classes = len(model.classes)
     binary = True if n_classes == 2 else False
 
@@ -320,12 +320,15 @@ def train_phoneme_classifier(
                             
                             torch.save(model.state_dict(), model_file)
                             best_val_acc = val_acc
-                            print(f"New best val accuracy: {best_val_acc:.4f}")
+                            print(f"New best (real) val accuracy: {best_val_acc:.4f} (epoch: {i_epoch})")
                             
                             if test_dl is not None:
                                 test_stats = eval_phoneme_classifier(model, test_dl, criterion, device)
                                 test_acc = test_stats.acc
-                                print(f"Test accuracies at the time of best validation acc: test_acc={test_acc}")
+                                test_y_true = test_stats.all_labels_pt
+                                test_y_pred = test_stats.all_preds_pt
+                                
+                                print(f"Test accuracies at the time of best validation acc: test_acc={test_acc} (test_dl.name={test_dl.name})")
 
                             # Save the predictions and true labels
                             torch.save(all_preds, out_dir / "all_preds.pt")
@@ -356,8 +359,8 @@ def train_phoneme_classifier(
                             if count_patience == patience:
                                 stop_training = True
                                 print(f"Stop training due to no improvements after {patience} steps ...")
-                                print(f"Highest val acc (syn) was: \t{best_val_acc:.4f}")
-                                print(f"Highest test acc (syn) was: \t{test_acc:.4f}")
+                                print(f"Highest val acc (real) was: \t{best_val_acc:.4f}")
+                                print(f"Highest test acc (real) was: \t{test_acc:.4f}")
                                 break
 
             if stop_training:

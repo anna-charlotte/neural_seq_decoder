@@ -211,7 +211,7 @@ def evaluate(ngram_decoder, model_test_outputs, model_holdOut_outputs, outputFil
 
 if __name__ == "__main__":
     save_output = True
-    eval_model = False
+    eval_model = True
 
     base_dir = root_directory = os.environ["DATA"] + "/willett2023"
 
@@ -219,9 +219,6 @@ if __name__ == "__main__":
     model_path = "/home/lina4471/willett2023/competitionData/model/speechBaseline4"
     model_out_path = "/home/lina4471/willett2023/competitionData/rnn"
 
-    # Load dataset and rnn model
-    # with open(model_path + "/args", "rb") as handle:
-        # args = pickle.load(handle)
     print(f"Load args from: {model_path}/args")
     args = load_args(model_path + "/args")
 
@@ -238,12 +235,12 @@ if __name__ == "__main__":
 
     if save_output:
         # save train predictions from RNN to train file
-        # file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
-        # save_model_output(model=model, loaded_data=loaded_data["train"], device=device, out_file=file)
+        file = "/data/engs-pnpl/lina4471/willett2023/competitionData/___rnn_train_set_with_logits.pkl"
+        save_model_output(model=model, loaded_data=loaded_data["train"], device=device, out_file=file)
 
         # save first have of test predictions as VAL SPLIT, second half as TEST HALF
-        out_file_test = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_TEST_SPLIT.pkl"
-        out_file_val = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_VAL_SPLIT.pkl"
+        out_file_test = "/data/engs-pnpl/lina4471/willett2023/competitionData/___rnn_test_set_with_logits_TEST_SPLIT.pkl"
+        out_file_val = "/data/engs-pnpl/lina4471/willett2023/competitionData/___rnn_test_set_with_logits_VAL_SPLIT.pkl"
         test_data = loaded_data["test"]  # list of dicts
         print(f"len(test_data) = {len(test_data)}")
         print(f"type(test_data) = {type(test_data)}")
@@ -254,6 +251,9 @@ if __name__ == "__main__":
 
         first_half = test_data[:mid_index]
         second_half = test_data[mid_index:]
+        print(f"len(first_half) = {len(first_half)}")
+        print(f"len(second_half) = {len(second_half)}")
+        print(f"len(test_data) = {len(test_data)}")
 
         save_model_output_to_several_files(
             model=model,

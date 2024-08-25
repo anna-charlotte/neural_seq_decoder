@@ -69,6 +69,7 @@ def main(args: dict) -> None:
     phoneme_ds_filter = {"correctness_value": args["correctness_value"], "phoneme_cls": args["phoneme_cls"]}
     args["phoneme_ds_filter"] = phoneme_ds_filter
     phoneme_classes = args["phoneme_cls"]
+    print(f"phoneme_ds_filter = {phoneme_ds_filter}")
 
     transform = None
     if args["transform"] == "softsign":
@@ -117,17 +118,17 @@ def main(args: dict) -> None:
     print(f"transform = {transform.__class__.__name__}")
 
     # load train dataloader
-    train_dl_real = get_data_loader(
-        data=load_pkl(args["train_set_path"]),
-        batch_size=batch_size,
-        shuffle=False,
-        collate_fn=None,
-        dataset_cls=PhonemeDataset,
-        phoneme_ds_filter=phoneme_ds_filter,
-        class_weights=class_weights,
-        transform=transform,
-    )
-    train_dl_real.name = "train-real"
+    # train_dl_real = get_data_loader(
+    #     data=load_pkl(args["train_set_path"]),
+    #     batch_size=batch_size,
+    #     shuffle=False,
+    #     collate_fn=None,
+    #     dataset_cls=PhonemeDataset,
+    #     phoneme_ds_filter=phoneme_ds_filter,
+    #     class_weights=class_weights,
+    #     transform=transform,
+    # )
+    # train_dl_real.name = "train-real"
     # labels_train = get_label_distribution(train_dl_real.dataset)
 
     # load val dataloader
@@ -142,13 +143,13 @@ def main(args: dict) -> None:
         transform=transform,
     )
     val_dl_real.name = "val-real"
-    # labels_val = get_label_distribution(val_dl.dataset)
-    # class_counts_val = [labels_val[i] for i in range(1, 40)]
-    # plot_phoneme_distribution(
-    #     class_counts_val,
-    #     ROOT_DIR / "plots" / "phoneme_distribution_test_set_VAL_SPLIT_correctly_classified_by_RNN.png",
-    #     f"Phoneme Distribution in Validation Set ({len(val_dl.dataset)} samples)",
-    # )
+    labels_val = get_label_distribution(val_dl_real.dataset)
+    class_counts_val = [labels_val[i] for i in range(1, 40)]
+    plot_phoneme_distribution(
+        class_counts_val,
+        ROOT_DIR / "plots" / "phoneme_distribution_test_set_VAL_SPLIT_correctly_classified_by_RNN.png",
+        f"Phoneme Distribution in Validation Set ({len(val_dl_real.dataset)} samples)",
+    )
 
     # load test dataloader
     test_dl_real = get_data_loader(
@@ -162,13 +163,13 @@ def main(args: dict) -> None:
         transform=transform,
     )
     test_dl_real.name = "test-real"
-    # labels_test = get_label_distribution(test_dl.dataset)
-    # class_counts_test = [labels_test[i] for i in range(1, 40)]
-    # plot_phoneme_distribution(
-    #     class_counts_test,
-    #     ROOT_DIR / "plots" / "phoneme_distribution_test_set_TEST_SPLIT_correctly_classified_by_RNN.png",
-    #     f"Phoneme Distribution in Test Set ({len(test_dl.dataset)} samples)",
-    # )
+    labels_test = get_label_distribution(test_dl_real.dataset)
+    class_counts_test = [labels_test[i] for i in range(1, 40)]
+    plot_phoneme_distribution(
+        class_counts_test,
+        ROOT_DIR / "plots" / "phoneme_distribution_test_set_TEST_SPLIT_correctly_classified_by_RNN.png",
+        f"Phoneme Distribution in Test Set ({len(test_dl_real.dataset)} samples)",
+    )
 
     if (
        "generative_model_weights_path" in args.keys()
@@ -295,8 +296,10 @@ if __name__ == "__main__":
                         args["patience"] = 40
                         args["gaussian_smoothing_kernel_size"] = 20
                         args["gaussian_smoothing_sigma"] = 2.0
-                        args["phoneme_cls"] = [3, 31]  # list(range(1, 40))
+                        args["phoneme_cls"] = list(range(1, 40))
                         args["correctness_value"] = ["C"]
+
+                        args["unconditional"] = True
 
                         # args["n_input_features"] = 41
                         # args["n_output_features"] = 256

@@ -5,6 +5,7 @@
 *.pt
 *.gif
 *.txt
+out/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

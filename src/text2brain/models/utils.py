@@ -1,5 +1,7 @@
 import pickle
+import torch
 from pathlib import Path
+from typing import List
 
 from text2brain.models.rnn import TextToBrainGRU
 from utils import load_args
@@ -29,3 +31,12 @@ def load_text2brain_model(model_dir: Path):
     model.load_weights(file_path=weights_file)
 
     return model
+
+
+def labels_to_indices(labels: torch.Tensor, classes: List[int]):
+    indices = []
+    classes_torch = torch.tensor(classes).to(labels.device)
+    for label in labels:
+        index = (classes_torch == label).nonzero(as_tuple=True)[0].item()
+        indices.append(index)
+    return torch.tensor(indices, dtype=torch.long, device=labels.device).view(labels.size())

@@ -10,9 +10,12 @@
 # #SBATCH --partition=devel
 # #SBATCH --output=/home/lina4471/willett2023/slurm_out/train_t2b_simple_gan_devel.%j.out
 
-#SBATCH --time=12:00:00
-#SBATCH --partition=short
-#SBATCH --output=/home/lina4471/willett2023/slurm_out/train_t2b_simple_gan_short.%j.out
+# #SBATCH --time=12:00:00
+# #SBATCH --partition=short
+# #SBATCH --output=/home/lina4471/willett2023/slurm_out/train_t2b_simple_gan_short.%j.out
+
+#SBATCH --partition=long
+#SBATCH --output=/home/lina4471/willett2023/slurm_out/train_t2b_simple_gan_long.%j.out
 
 #SBATCH --mail-type=BEGIN,END
 #SBATCH --mail-user=anna.gerhaher@linacre.ox.ac.uk

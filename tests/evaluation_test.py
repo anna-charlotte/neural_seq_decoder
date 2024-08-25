@@ -8,7 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from data.dataset import PhonemeDataset
-from evaluation import compute_correlation_matrix, compute_likelihood
+from evaluation import compute_correlation_matrix, compute_likelihood, compute_auroc_with_stderr, compute_man_whitney
 from neural_decoder.neural_decoder_trainer import get_data_loader
 from neural_decoder.phoneme_utils import ROOT_DIR
 from neural_decoder.transforms import TransposeTransform
@@ -93,65 +93,28 @@ def test_compute_likelihood():
     # print(f'Average Likelihood of Synthetic Data: {average_likelihood.item()}')
 
 
-test_compute_likelihood()
+def test_compute_auroc_with_stderr():
+    y_true = np.array([0, 0, 0, 0, 0, 1, 1, 1, 1, 1])
+    y_pred = np.array([0, 0, 1, 0, 0, 1, 0, 0, 1, 1])
+    mean, std = compute_auroc_with_stderr(y_true, y_pred, n_iters=100)
 
-# def test_tanh_vs_softsign():
-#     from torchvision import transforms
-#     from neural_decoder.transforms import (
-#         AddOneDimensionTransform,
-#         ReorderChannelTransform,
-#         SoftsignTransform,
-#         TransposeTransform,
-#     )
-#     from data.augmentations import GaussianSmoothing
+    print(f"mean = {mean}")
+    print(f"std = {std}")
 
-#     test_file = "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits.pkl"
-#     with open(test_file, "rb") as handle:
-#         data = pickle.load(handle)
+    mean, std = compute_auroc_with_stderr(y_true, y_true, n_iters=100)
+    
+    print(f"mean = {mean}")
+    print(f"std = {std}")
 
-#     transform = transforms.Compose(
-#         [
-#             TransposeTransform(0, 1),
-#             ReorderChannelTransform(),
-#             AddOneDimensionTransform(dim=0),
-#             GaussianSmoothing(256, kernel_size=20, sigma=2.0, dim=1),
-#         ]
-#     )
-#     plot_dir = ROOT_DIR / "evaluation" / "softsign_vs_tanh"
-#     plot_dir.mkdir(parents=True, exist_ok=True)
 
-#     dl = get_data_loader(
-#         data=data,
-#         batch_size=1,
-#         shuffle=True,
-#         collate_fn=None,
-#         transform=transform,
-#         dataset_cls=PhonemeDataset,
-#     )
-#     x = dl.dataset.neural_windows[0]
-#     for i, batch in enumerate(dl):
-#         X, _, _, _ = batch
-#         X = X[0][0]
-#         X_softsign = F.softsign(X)
-#         X_tanh = torch.tanh(X)
 
-#         fig, axes = plt.subplots(1, 3, figsize=(12, 4))
 
-#         # Plot each image
-#         axes[0].imshow(X, cmap='plasma')
-#         axes[0].axis('off')
-#         axes[0].set_title('Original Image')
-
-#         axes[1].imshow(X_softsign, cmap='plasma')
-#         axes[1].axis('off')
-#         axes[1].set_title('Softsign(image)')
-
-#         axes[2].imshow(X_tanh, cmap='plasma')
-#         axes[2].axis('off')
-#         axes[2].set_title('Tanh(image)')
-
-#         plt.tight_layout()
-#         plt.savefig(plot_dir / f"softsign_vs_tanh_{i}.png")
-
-#         if i == 10:
-#             break
+def test_compute_man_whitney():
+    y_true = np.array([0] * 1000 + [1] * 1000)
+    assert len(y_true) == 2000
+    stat, p_val = compute_man_whitney(y_true, y_true, y_true, n_iters=100)
+    
+    assert stat == 5000.0
+    assert p_val == 1.0
+test_compute_auroc_with_stderr()
+test_compute_man_whitney()
