@@ -11,6 +11,7 @@ from torchvision import transforms
 from data.dataset import PhonemeDataset
 from data.augmentations import GaussianSmoothing
 from data.dataset import PhonemeDataset
+from neural_decoder.model_phoneme_classifier import train_phoneme_classifier
 from neural_decoder.neural_decoder_trainer import get_data_loader
 from neural_decoder.phoneme_utils import ROOT_DIR
 from neural_decoder.transforms import (
@@ -24,7 +25,7 @@ from neural_decoder.phoneme_utils import ROOT_DIR
 from neural_decoder.transforms import SoftsignTransform
 from text2brain.models.model_interface_load import load_t2b_gen_model
 from text2brain.models.phoneme_image_gan import PhonemeImageGAN
-from text2brain.visualization import plot_brain_signal_animation, plot_single_image
+from text2brain.visualization import plot_brain_signal_animation, plot_single_image, bar_plot
 from utils import dump_args, load_args, load_pkl, set_seeds
 
 
@@ -54,8 +55,8 @@ def main(args: dict) -> None:
                 AddOneDimensionTransform(dim=0),
                 GaussianSmoothing(
                     256,
-                    kernel_size=args["gaussian_smoothing_kernel_size"],
-                    sigma=args["gaussian_smoothing_sigma"],
+                    kernel_size=20,
+                    sigma=2.0,
                     dim=1,
                 ),
                 SoftsignTransform(),
@@ -74,6 +75,7 @@ def main(args: dict) -> None:
         phoneme_ds_filter=phoneme_ds_filter,
         transform=transform,
     )
+    train_dl.name = "train-dl-real"
 
     print(f"len(train_dl.dataset) = {len(train_dl.dataset)}")
 
@@ -87,6 +89,7 @@ def main(args: dict) -> None:
         phoneme_ds_filter=phoneme_ds_filter,
         transform=transform,
     )
+    val_dl.name = "val-dl-real"
 
     test_data = load_pkl(args["test_set_path"])
     test_dl = get_data_loader(
@@ -98,12 +101,14 @@ def main(args: dict) -> None:
         phoneme_ds_filter=phoneme_ds_filter,
         transform=transform,
     )
+    test_dl.name = "test-dl-real"
 
     gan = PhonemeImageGAN(
         input_shape=args["input_shape"],
         latent_dim=args["latent_dim"],
         classes=args["phoneme_cls"],
         conditioning=args["conditioning"],
+        dec_emb_dim=args["dec_emb_dim"],
         device=device,
         n_critic=args["n_critic"],
         lr_g=args["lr_g"],
@@ -134,7 +139,13 @@ def main(args: dict) -> None:
 
     G_losses = []
     D_losses = []
-    
+
+    val_aurocs = []
+    test_aurocs = []
+    val_f1s = []
+    test_f1s = []
+    epochs = []
+
     noise = torch.randn(3, gan._g.latent_dim, device=gan.device)
 
     n_epochs = args["n_epochs"]
@@ -165,11 +176,6 @@ def main(args: dict) -> None:
                             title=f"GAN generated image \n(phoneme cls {label}, epoch {epoch})"
                         )
 
-                    # plot_single_image(
-                    #     X=x[0][0],
-                    #     out_file=plot_dir / f"real_image_{epoch}_{i}__cls_{label}.png",
-                    #     title=f"Real image \n(phoneme cls {label})"
-                    # )
 
             loss_D, loss_G = gan.train_step(train_dl)
 
@@ -192,12 +198,36 @@ def main(args: dict) -> None:
         file = out_dir / f"modelWeights"
         print(f"Storing GAN weights to: {file}")
 
-        if epoch > 800 and epoch % 50 == 0:
+        if epoch > 700 and epoch % 20 == 0:
             file = out_dir / f"modelWeights_{epoch}"
             gan.save_state_dict(file)
-            
-    
-        # torch.save(gan.state_dict(), file)
+
+            stats = train_phoneme_classifier(
+                gen_models=[gan],
+                n_samples_train_syn=10_000,
+                n_samples_val=2_000,
+                val_dl_real=val_dl, 
+                test_dl_real=test_dl,
+                phoneme_classes=phoneme_cls,
+                input_shape=(128, 8, 8),
+                batch_size=64,
+                n_epochs=100, 
+                patience=40,
+                lr=1e-4,
+                device=device,
+                out_dir=out_dir,
+            )
+
+            val_aurocs.append(max(stats["val_aurocs_macro"]["val-dl-real"]))
+            test_aurocs.append(stats["test_auroc_macro"])
+            val_f1s.append(max(stats["val_f1_macro"]["val-dl-real"]))
+            test_f1s.append(stats["test_f1_macro"])
+            epochs.append(epoch)
+
+            bar_plot(val_aurocs, epochs, out_file=plot_dir / f"stats_aurocs_val.png", title="AUROC on validation set (real)", ylabel="AUROC", xlabel="Epoch", color='blue')
+            bar_plot(test_aurocs, epochs, out_file=plot_dir / f"stats_aurocs_test.png", title="AUROC on test set (real)", ylabel="AUROC", xlabel="Epoch", color='blue')
+            bar_plot(val_f1s, epochs, out_file=plot_dir / f"stats_f1s_val.png", title="F1 scores on validation set (real)", ylabel="F1 Score", xlabel="Epoch", color='blue')
+            bar_plot(test_f1s, epochs, out_file=plot_dir / f"stats_f1s_test.png", title="F1 scores on test set (real) ", ylabel="F1 Score", xlabel="Epoch", color='blue')
 
         plot_gan_losses(
             G_losses,
@@ -205,7 +235,7 @@ def main(args: dict) -> None:
             out_file=plot_dir / f"gan_losses_nclasses_{len(classes)}.png",
         )
 
-
+        
 def plot_gan_losses(g_losses: list, d_losses: list, out_file: Path) -> None:
     plt.figure(figsize=(10, 5))
     plt.title("Generator and Discriminator Loss During Training")
@@ -228,58 +258,59 @@ def plot_accuracies(accs: list, out_file: Path, title: str) -> None:
 
 
 if __name__ == "__main__":
-    for lr_g, lr_d in [(5e-05, 5e-05), (1e-04, 1e-05), (1e-05, 1e-05)]:  #, 1e-5, 1e-3]:  # [1e-3, 1e-4, 1e-5]:
+    for lr_g, lr_d in [(5e-4, 5e-5)]:  #, (1e-5, 1e-5), (1e-4, 1e-5)]:  # [(5e-05, 5e-05), (1e-04, 1e-05), (1e-05, 1e-05)]:  #, 1e-5, 1e-3]:  # [1e-3, 1e-4, 1e-5]:
         for n_critic in [5]:  # , 2]:
-            for conditioning in [None]:
-                for latent_dim in [256]:
-                    for phoneme_cls in [[3], [31],]:
-                        # if (factor_lr_d == 0.05 and n_critic==2) or (factor_lr_d == 0.01 and n_critic==1):
+            for latent_dim in [256]:
+                for phoneme_cls in [[3],]:
+                    for conditioning in [None]:
+                        for dec_emb_dim in [None]:
+                    
+                            # if (factor_lr_d == 0.05 and n_critic==2) or (factor_lr_d == 0.01 and n_critic==1):
 
-                        now = datetime.now()
-                        timestamp = now.strftime("%Y%m%d_%H%M%S")
+                            now = datetime.now()
+                            timestamp = now.strftime("%Y%m%d_%H%M%S")
 
-                        print("in main ...")
-                        args = {}
-                        args["seed"] = 0
-                        args["device"] = "cuda"
-                        args["timestamp"] = timestamp
+                            print("in main ...")
+                            args = {}
+                            args["seed"] = 0
+                            args["device"] = "cuda"
+                            args["timestamp"] = timestamp
 
-                        args["phoneme_cls"] = phoneme_cls
-                        args["conditioning"] = conditioning
+                            args["phoneme_cls"] = phoneme_cls
+                            args["conditioning"] = conditioning
 
-                        args["batch_size"] = 128
+                            args["batch_size"] = 128
 
-                        args["latent_dim"] = latent_dim
-                        args["input_shape"] = (4, 64, 32)
+                            args["latent_dim"] = latent_dim
+                            args["dec_emb_dim"] = dec_emb_dim
+                            args["input_shape"] = (4, 64, 32)
 
-                        args["n_epochs"] = 2_000
-                        args["lr_g"] = lr_g
-                        args["lr_d"] = lr_d
-                        
-                        args["n_critic"] = n_critic
-                        args["transform"] = "softsign"
-                        args["gaussian_smoothing_kernel_size"] = 20
-                        args["gaussian_smoothing_sigma"] = 2.0
+                            args["n_epochs"] = 2_500
+                            args["lr_g"] = lr_g
+                            args["lr_d"] = lr_d
+                            
+                            args["n_critic"] = n_critic
+                            args["transform"] = "softsign"
 
-                        # args["vae_path"] = "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_182747/modelWeights_epoch_120"
-                        args["train_set_path"] = (
-                            "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
-                        )
-                        args["val_set_path"] = (
-                            "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_VAL_SPLIT.pkl"
-                        )
-                        args["test_set_path"] = (
-                            "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_TEST_SPLIT.pkl"
-                        )
-                        args["output_dir"] = (
-                            f"/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/test__PhonemeImageGAN_{timestamp}__phoneme_cls_{'_'.join(map(str, args['phoneme_cls']))}"
-                        )
-                        args["plot_dir"] = str((
-                            ROOT_DIR
-                            / "evaluation"
-                            / "gan"
-                            / "test__run_20240818_gradient_penatly"
-                            / f"gan_{args['timestamp']}_in_{'_'.join(map(str, args['input_shape']))}__latdim_{args['latent_dim']}__lrg_{args['lr_g']}__lrd_{args['lr_d']}__phoneme_cls_{'_'.join(map(str, args['phoneme_cls']))}"
-                        ))
+                            # args["vae_path"] = "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_182747/modelWeights_epoch_120"
+                            args["train_set_path"] = (
+                                "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
+                            )
+                            args["val_set_path"] = (
+                                "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_VAL_SPLIT.pkl"
+                            )
+                            args["test_set_path"] = (
+                                "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_TEST_SPLIT.pkl"
+                            )
+                            args["output_dir"] = (
+                                f"/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/test__PhonemeImageGAN_{timestamp}__phoneme_cls_{'_'.join(map(str, args['phoneme_cls']))}"
+                            )
+                            args["plot_dir"] = str((
+                                ROOT_DIR
+                                / "evaluation"
+                                / "gan"
+                                / "test__run_20240829_gradient_penatly"
+                                / f"gan_{args['timestamp']}_in_{'_'.join(map(str, args['input_shape']))}__latdim_{args['latent_dim']}__lrg_{args['lr_g']}__lrd_{args['lr_d']}__phoneme_cls_{'_'.join(map(str, args['phoneme_cls']))}__cond_{args['conditioning']}__dec_emb_dim_{args['dec_emb_dim']}"
+                            ))
 
-                        main(args)
+                            main(args)

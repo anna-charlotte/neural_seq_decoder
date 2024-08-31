@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader
 
 from data.dataset import SyntheticPhonemeDataset
 from neural_decoder.phoneme_utils import ROOT_DIR
-from text2brain.models.conditioning_film import FiLM
+from text2brain.models.conditioning_film import FiLM, __FiLM_2
 from text2brain.models.model_interface import T2BGenInterface
 from text2brain.models.utils import labels_to_indices
 from text2brain.models.vae_interface import VAEBase
@@ -139,18 +139,23 @@ class Encoder_4_64_32(nn.Module):
             nn.Conv2d(4, 16, 3, 1, 1, bias=False),  # -> (16) x 64 x 32
             nn.BatchNorm2d(16),
             nn.LeakyReLU(0.2, inplace=True),
+
             nn.Conv2d(16, 32, 3, 2, 1, bias=False),  # -> (32) x 32 x 16
             nn.BatchNorm2d(32),
             nn.LeakyReLU(0.2, inplace=True),
+
             nn.Conv2d(32, 64, 3, 2, 1, bias=False),  # -> (64) x 16 x 8
             nn.BatchNorm2d(64),
             nn.LeakyReLU(0.2, inplace=True),
+
             nn.Conv2d(64, 128, 3, 2, 1, bias=False),  # -> (128) x 8 x 4
             nn.BatchNorm2d(128),
             nn.LeakyReLU(0.2, inplace=True),
+
             nn.Conv2d(128, 256, 3, 2, 1, bias=False),  # -> (256) x 4 x 2
             nn.BatchNorm2d(256),
             nn.LeakyReLU(0.2, inplace=True),
+            
             nn.Conv2d(256, 512, 3, 2, 1, bias=False),  # -> (512) x 2 x 1
             nn.BatchNorm2d(512),
             nn.LeakyReLU(0.2, inplace=True),
@@ -170,7 +175,15 @@ class Encoder_4_64_32(nn.Module):
 
 # Decoder for output size (4, 64, 32)
 class Decoder_4_64_32(DecoderInterface):
-    def __init__(self, latent_dim: int, classes: Optional[list] = None, dec_emb_dim: int = None, conditioning: Literal["concat", "film"] = None, n_layers_film: int = None, dec_hidden_dim: int = 512):
+    def __init__(
+        self, 
+        latent_dim: int, 
+        classes: Optional[list] = None, 
+        dec_emb_dim: int = None, 
+        conditioning: Literal["concat", "film"] = None, 
+        n_layers_film: int = None, 
+        dec_hidden_dim: int = 512
+    ):
         super(Decoder_4_64_32, self).__init__(latent_dim, classes, dec_emb_dim, conditioning, n_layers_film, dec_hidden_dim)
         
         input_dim = latent_dim
@@ -180,6 +193,7 @@ class Decoder_4_64_32(DecoderInterface):
         if self.conditioning == "film":
             self.film = FiLM(conditioning_dim=len(classes), in_features=latent_dim, n_layers=n_layers_film)
 
+        self.input_dim = input_dim
         self.fc = nn.Sequential(nn.Linear(input_dim, dec_hidden_dim * 2 * 1), nn.ReLU(inplace=True))  #TODO why 512*2
         self.model = nn.Sequential(
             nn.ConvTranspose2d(dec_hidden_dim, 256, 3, 2, 1, 1, bias=False),  # -> (256) x 4 x 2
@@ -219,6 +233,95 @@ class Decoder_4_64_32(DecoderInterface):
         h = self.fc(h)
         h = h.view(h.size(0), self.dec_hidden_dim, 2, 1)  # reshape to (dec_hidden_dim) x 2 x 1
         h = self.model(h)
+        h = h.view(-1, 1, 256, 32)
+        return h
+
+
+class __Decoder_4_64_32(DecoderInterface):
+    def __init__(
+            self, 
+            latent_dim: int, 
+            classes: Optional[list] = None, 
+            dec_emb_dim: int = None, 
+            conditioning: Literal["concat", "film"] = None, 
+            n_layers_film: int = None, 
+            dec_hidden_dim: int = 512
+        ):
+        super(Decoder_4_64_32, self).__init__(latent_dim, classes, dec_emb_dim, conditioning, n_layers_film, dec_hidden_dim)
+
+        input_dim = latent_dim
+        if classes is not None and self.conditioning == "concat":
+            self.embedding = nn.Embedding(len(classes), self.dec_emb_dim)
+            input_dim += self.dec_emb_dim
+        elif classes is not None and self.conditioning == "film":
+            # self.embedding = nn.Embedding(len(classes), self.dec_emb_dim)
+            self.film = __FiLM_2(conditioning_dim=len(classes), in_features=latent_dim)
+            self.film_layers = nn.ModuleList(
+                [
+                    # __FiLM_2(conditioning_dim=self.dec_emb_dim, in_features=256),
+                    # __FiLM_2(conditioning_dim=self.dec_emb_dim, in_features=128),
+                    
+                    # FiLM(256, self.dec_emb_dim),
+                    # FiLM(128, self.dec_emb_dim),
+
+                    # FiLM(64, self.dec_emb_dim),
+                    # FiLM(32, self.dec_emb_dim),
+                    # FiLM(16, self.dec_emb_dim)
+                ]
+            )
+        self.input_dim = input_dim
+        self.fc = nn.Sequential(
+            nn.Linear(input_dim, dec_hidden_dim * 2 * 1),
+            nn.ReLU(inplace=True)
+        )
+
+        self.model = nn.Sequential(
+            nn.ConvTranspose2d(dec_hidden_dim, 256, 3, 2, 1, 1, bias=False),  # -> (256) x 4 x 2
+            nn.BatchNorm2d(256),
+            nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(256, 128, 3, 2, 1, 1, bias=False),  # -> (128) x 8 x 4
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(128, 64, 3, 2, 1, 1, bias=False),  # -> (64) x 16 x 8
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(64, 32, 3, 2, 1, 1, bias=False),  # -> (32) x 32 x 16
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(32, 16, 3, 2, 1, 1, bias=False),  # -> (16) x 64 x 32
+            nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(16, 4, 3, 1, 1, bias=False),  # -> (4) x 64 x 32
+            nn.Tanh(),  # TODO: change to softsign
+        )
+
+    def forward(self, z: torch.Tensor, labels: Optional[torch.Tensor] = None):
+
+        if self.conditioning is not None:
+            assert z.size(0) == labels.size(0)
+            y_indices = labels_to_indices(labels, self.classes)
+
+            if self.conditioning == "concat":
+                y_emb = self.embedding(y_indices)
+                h = torch.concat((z, y_emb), dim=1)
+            elif self.conditioning == "film":
+                y_one_hot = F.one_hot(y_indices, num_classes=len(self.classes)).float()
+                h = self.film(z, y_one_hot)
+                # y_one_hot = self.embedding(y_indices)
+                h = z
+        else:
+            h = z
+
+        h = self.fc(h)
+        h = h.view(h.size(0), self.dec_hidden_dim, 2, 1)  # reshape to (dec_hidden_dim) x 2 x 1
+
+        i_film = 0
+        for i, layer in enumerate(self.model):
+            h = layer(h)
+            if self.conditioning == "film" and isinstance(layer, nn.BatchNorm2d) and i_film < len(self.film_layers):
+                h = self.film_layers[i_film](h, y_one_hot)
+                i_film += 1
+
         h = h.view(-1, 1, 256, 32)
         return h
 
@@ -406,6 +509,7 @@ class CondVAE(VAEBase, T2BGenInterface):
 class VAE(VAEBase, T2BGenInterface):
     def __init__(self, latent_dim: int, input_shape: Tuple[int, int, int], device: str = "cpu", classes: List[int] = None, dec_hidden_dim: int = 512):
         super(VAE, self).__init__(latent_dim, input_shape, classes, device)
+        self.conditioning = None
         input_shape = tuple(input_shape)
 
         if input_shape == (1, 256, 32):

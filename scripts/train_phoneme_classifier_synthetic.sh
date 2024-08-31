@@ -4,10 +4,10 @@
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks-per-node=4
 #SBATCH --mem-per-cpu=8G
-#SBATCH --time=10:00:00
-#SBATCH --job-name=p_cls_syn
-#SBATCH --partition=short
-#SBATCH --output=/data/engs-pnpl/lina4471/repos/neural_seq_decoder/out/vae_experiment_conditioning/out_conditioning_concat__dec_emb_dim_8__dec_hidden_dim_256
+#SBATCH --time=48:00:00
+#SBATCH --job-name=plot_cond_dim_experiment
+#SBATCH --partition=long
+#SBATCH --output=/data/engs-pnpl/lina4471/repos/neural_seq_decoder/out/plot_cond_dim_experiment_medium_2
 #SBATCH --mail-type=BEGIN,END
 #SBATCH --mail-user=anna.gerhaher@linacre.ox.ac.uk
 

@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Dict, List, Tuple
+import copy
 
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
@@ -11,6 +12,63 @@ from sklearn.manifold import TSNE
 from neural_decoder.neural_decoder_trainer import get_dataset_loaders
 from neural_decoder.phoneme_utils import PHONE_DEF, ROOT_DIR
 from evaluation import compute_auroc_with_stderr
+
+
+def plot_aurocs_with_error_bars(aurocs, errs, x_labels, out_file: Path, title="AUROC Plot", ylabel="AUROC", xlabel="Models", color='blue'):
+
+    aurocs = np.array(aurocs)
+    errs = np.array(errs)
+    x_labels = [str(x) for x in x_labels]
+
+    plt.figure(figsize=(10, 6))
+    
+    plt.bar(x_labels, aurocs, yerr=errs, capsize=5, color="skyblue", edgecolor='black')
+
+    plt.title(title)
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    
+    range_auroc = max(aurocs) - min(aurocs)
+    min_padding = range_auroc / 3
+    max_padding = range_auroc / 4
+    plt.ylim(min(aurocs) - min_padding, max(aurocs) + max_padding)
+
+    # plt.xticks(ha='right')
+    plt.grid(True, linestyle='--', alpha=0.7)
+
+    plt.tight_layout()
+    plt.savefig(out_file)
+    plt.close()
+
+
+def bar_plot(bars, x_labels, out_file: Path, title="AUROC Plot", ylabel="AUROC", xlabel="Models", color='blue'):
+
+    print(f"bars = {bars}")
+    bars = np.array(bars)
+    print(f"bars.shape = {bars.shape}")
+    x_labels_new = copy.deepcopy(x_labels)
+    for i, x in enumerate(x_labels):
+        x_labels_new[i] = f"{x} \n(val={bars[i]:.4f})"
+
+    plt.figure(figsize=(10, 6))
+    
+    plt.bar(x_labels_new, bars, capsize=5, color="skyblue", edgecolor='black')
+
+    plt.title(title)
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    
+    diff = max(bars) - min(bars)
+    min_padding = diff / 3
+    max_padding = diff / 4
+    plt.ylim(min(bars) - min_padding, max(bars) + max_padding)
+
+    # plt.xticks(ha='right')
+    plt.grid(True, linestyle='--', alpha=0.7)
+
+    plt.tight_layout()
+    plt.savefig(out_file)
+    plt.close()
 
 
 def plot_neural_window(
@@ -418,30 +476,5 @@ if __name__ == "__main__":
         break
 
 
-def plot_aurocs_with_error_bars(y_true: np.ndarray, model2pred: Dict[str, np.ndarray], out_file: Path, x_label: str = 'Model', title: str = 'AUROC Scores with Error Bars') -> None:
-    aurocs = []
-    errs = []
-    model_names = []
-
-    for model_name, pred in model2pred.items():
-        auroc, err = compute_auroc_with_stderr(y_true=y_true, y_pred=pred, n_iters=1_000)
-        aurocs.append(auroc)
-        errs.append(err)
-        model_names.append(model_name)
-
-    aurocs = np.array(aurocs)
-    errs = np.array(errs)
-
-    plt.figure(figsize=(10, 6))
-    plt.bar(model_names, aurocs, yerr=errs, capsize=5, color='skyblue', edgecolor='black')
-    plt.xlabel(x_label)
-    plt.ylabel('AUROC')
-    plt.title(title)
-    # plt.ylim(0, 1)
-    plt.xticks(rotation=45, ha='right')
-
-    plt.tight_layout()
-    plt.savefig(out_file)
-    plt.close()
 
 

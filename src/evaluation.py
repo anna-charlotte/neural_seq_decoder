@@ -5,7 +5,7 @@ from scipy.stats import multivariate_normal
 from sklearn.utils import resample
 from sklearn.metrics import roc_auc_score
 from typing import Tuple
-
+from scipy.stats import bootstrap
 from scipy.stats import mannwhitneyu
 
 
@@ -63,9 +63,9 @@ def compute_likelihood(mean: torch.Tensor, logvar: torch.Tensor, x: torch.Tensor
 
 def compute_auroc_with_stderr(y_true: np.ndarray, y_pred: np.ndarray, n_iters: int = 1_000) -> Tuple[np.ndarray, np.ndarray]:
     auroc_scores = []
+
     for _ in range(n_iters):
         y_true_bootstrap, y_pred_bootstrap = resample(y_true, y_pred)
-    
         auroc = roc_auc_score(y_true_bootstrap, y_pred_bootstrap)
         auroc_scores.append(auroc)
 
@@ -76,6 +76,24 @@ def compute_auroc_with_stderr(y_true: np.ndarray, y_pred: np.ndarray, n_iters: i
     return mean_auroc, sem_auroc
     # scipy.stats.mannwhitneyu(x,y, alternative='two-sided')
     # scipy.stats.ttest_ind(x, y, equal_var=False, alternative='two-sided')
+
+
+def compute_auroc_with_confidence_interval(y_true: np.ndarray, y_pred: np.ndarray, n_resamples: int = 1000, confidence_level: float = 0.95):
+    # Define a function to compute AUROC
+    def _auroc(y_true_resampled, y_pred_resampled):
+        a = roc_auc_score(y_true_resampled, y_pred_resampled)
+        return a
+    
+    print(f"y_true.shape = {y_true.shape}")
+    print(f"y_pred.shape = {y_pred.shape}")
+    
+    # Perform bootstrap resampling
+    res = bootstrap((y_true, y_pred), _auroc, n_resamples=n_resamples, confidence_level=confidence_level, method='basic')
+    
+    mean_auroc = np.mean(res.bootstrap_distribution)
+    ci_low, ci_high = res.confidence_interval.low, res.confidence_interval.high
+    
+    return mean_auroc, (ci_low, ci_high)
 
 
 def compute_man_whitney(y_true: np.ndarray, y_pred_1: np.ndarray, y_pred_2: np.ndarray, n_iters: int = 1_000) -> Tuple[np.ndarray, np.ndarray]:

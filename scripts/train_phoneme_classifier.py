@@ -21,8 +21,8 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 
 from data.augmentations import GaussianSmoothing
+from data.dataset import PhonemeDataset, SyntheticPhonemeDataset
 from data.dataloader import MergedDataLoader
-from data.dataset import PhonemeDataset
 from neural_decoder.model_phoneme_classifier import (
     PhonemeClassifier,
     train_phoneme_classifier,
@@ -118,18 +118,18 @@ def main(args: dict) -> None:
     print(f"transform = {transform.__class__.__name__}")
 
     # load train dataloader
-    # train_dl_real = get_data_loader(
-    #     data=load_pkl(args["train_set_path"]),
-    #     batch_size=batch_size,
-    #     shuffle=False,
-    #     collate_fn=None,
-    #     dataset_cls=PhonemeDataset,
-    #     phoneme_ds_filter=phoneme_ds_filter,
-    #     class_weights=class_weights,
-    #     transform=transform,
-    # )
-    # train_dl_real.name = "train-real"
-    # labels_train = get_label_distribution(train_dl_real.dataset)
+    train_dl_real = get_data_loader(
+        data=load_pkl(args["train_set_path"]),
+        batch_size=batch_size,
+        shuffle=False,
+        collate_fn=None,
+        dataset_cls=PhonemeDataset,
+        phoneme_ds_filter=phoneme_ds_filter,
+        class_weights=class_weights,
+        transform=transform,
+    )
+    train_dl_real.name = "train-real"
+    labels_train = get_label_distribution(train_dl_real.dataset)
 
     # load val dataloader
     val_dl_real = get_data_loader(
@@ -176,17 +176,28 @@ def main(args: dict) -> None:
         and "generative_model_n_samples" in args.keys()
     ):
         print("Use real and synthetic data ...")
-        weights_path = args["generative_model_weights_path"]
-        print(f"weights_path = {weights_path}")
-        gen_model = load_t2b_gen_model(weights_path=weights_path)
+        if isinstance(args["generative_model_weights_path"], list):
+            gen_models = []
+            for weights_path in args["generative_model_weights_path"]:
+                model = load_t2b_gen_model(weights_path=weights_path)
+                gen_models.append(model)
+        else:
+            gen_models = [load_t2b_gen_model(weights_path=args["generative_model_weights_path"])]
 
-        print(f"gen_model.__class__.__name__ = {gen_model.__class__.__name__}")
+            
+        # create synthetic training set
+        datasets = []
+        n_samples = int(args["generative_model_n_samples"] / len(gen_models))
+        for model in gen_models:
+            ds = model.create_synthetic_phoneme_dataset(
+                n_samples=n_samples,
+                neural_window_shape=(1, 256, 32),
+            )
+            datasets.append(ds) 
 
-        synthetic_ds = gen_model.create_synthetic_phoneme_dataset(
-            n_samples=args["generative_model_n_samples"],
-            neural_window_shape=(1, 256, 32),
-        )
-
+        synthetic_ds = SyntheticPhonemeDataset.combine_datasets(datasets=datasets)
+        assert len(synthetic_ds) == args["generative_model_n_samples"]
+        assert synthetic_ds.classes == phoneme_classes
         synthetic_dl = DataLoader(
             synthetic_ds,
             batch_size=batch_size,
@@ -195,6 +206,21 @@ def main(args: dict) -> None:
             pin_memory=True,
             collate_fn=None,
         )
+
+
+        # synthetic_ds = gen_model.create_synthetic_phoneme_dataset(
+        #     n_samples=args["generative_model_n_samples"],
+        #     neural_window_shape=(1, 256, 32),
+        # )
+
+        # synthetic_dl = DataLoader(
+        #     synthetic_ds,
+        #     batch_size=batch_size,
+        #     shuffle=True,
+        #     num_workers=0,
+        #     pin_memory=True,
+        #     collate_fn=None,
+        # )
 
         train_dl = MergedDataLoader(
             loader1=synthetic_dl, loader2=train_dl_real, prop1=args["generative_model_proportion"]
@@ -221,7 +247,7 @@ def main(args: dict) -> None:
     with open(out_dir / "args.json", "w") as file:
         json.dump(args, file, indent=4)
 
-    print(f"len(train_dl_real.dataset) = {len(train_dl_real.dataset)}")
+    # print(f"len(train_dl.dataset) = {len(train_dl.dataset)}")
     # print(f"len(synthetic_dl.dataset) = {len(synthetic_dl.dataset)}")
     print(f"len(val_dl_real.dataset) = {len(val_dl_real.dataset)}")
     print(f"len(test_dl_real.dataset) = {len(test_dl_real.dataset)}")
@@ -255,11 +281,11 @@ if __name__ == "__main__":
     # args["test_set_path"] = str(data_dir / "rnn_test_set_with_logits.pkl")
     args["n_epochs"] = 100
 
-    for synthetic_data in [True]:
+    for synthetic_data in [False, True]:
         for batch_size in [64]:
-            for cls_weights in ["sqrt", None]:
-                for lr in [1e-3, 5e-3, 1e-4]:
-                    for n_samples_syn in [5_000, 10_000, 15_000, 20_000]:
+            for cls_weights in [None]:
+                for lr in [1e-4]:
+                    for n_samples_syn in [40_000]:
                         now = datetime.now()
                         timestamp = now.strftime("%Y%m%d_%H%M%S")
 
@@ -270,8 +296,8 @@ if __name__ == "__main__":
                             # args["generative_model_args_path"] = (
                             #     "/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_20240708_103107/args"
                             # )
-                            args["generative_model_weights_path"] = f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_unconditional_20240809_044252/modelWeights_epoch_110"  # cls [3, 31]
-                            # args["generative_model_weights_path"] = [
+                            # args["generative_model_weights_path"] = f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_unconditional_20240809_044252/modelWeights_epoch_110"  # cls [3, 31]
+                            args["generative_model_weights_path"] = [
                             #     # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_conditional_20240807_103730/modelWeights",  # cls 3
                             #     # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_conditional_20240807_103916/modelWeights",  # cls 31
 
@@ -283,7 +309,11 @@ if __name__ == "__main__":
 
                             #     f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_unconditional_20240809_044252/modelWeights_epoch_110",  # cls [3, 31]
 
-                            # ]
+                                f"/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/test__PhonemeImageGAN_20240819_120647__phoneme_cls_3/modelWeights_1150",
+                                f"/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/test__PhonemeImageGAN_20240819_235138__phoneme_cls_31/modelWeights_1150"
+
+                            ]
+
                             args["generative_model_n_samples"] = n_samples_syn
                             args["generative_model_proportion"] = None
                             print(args["generative_model_weights_path"])
@@ -293,10 +323,10 @@ if __name__ == "__main__":
                         args["batch_size"] = batch_size
                         args["class_weights"] = cls_weights
                         args["transform"] = "softsign"
-                        args["patience"] = 40
+                        args["patience"] = 60
                         args["gaussian_smoothing_kernel_size"] = 20
                         args["gaussian_smoothing_sigma"] = 2.0
-                        args["phoneme_cls"] = list(range(1, 40))
+                        args["phoneme_cls"] = [3, 31]  # list(range(1, 40))
                         args["correctness_value"] = ["C"]
 
                         args["unconditional"] = True

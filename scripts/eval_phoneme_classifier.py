@@ -151,10 +151,10 @@ def main() -> None:
         all_preds_np_argmax = np.argmax(all_preds_np, axis=1)
 
         # calculate the AUROCs
-        test_auroc_macro = roc_auc_score(all_labels_np, all_preds_np, multi_class="ovr", average="macro")
+        test_auroc_macro = roc_auc_score(all_labels_np, all_preds_np, average="macro")
         all_test_aurocs_macro.append(test_auroc_macro)
 
-        test_auroc_micro = roc_auc_score(all_labels_np, all_preds_np, multi_class="ovr", average="micro")
+        test_auroc_micro = roc_auc_score(all_labels_np, all_preds_np, average="micro")
         all_test_aurocs_micro.append(test_auroc_micro)
         print(
             f"Test AUROC macro: {test_auroc_macro:.4f}, test AUROC micro: {test_auroc_micro:.4f}, test accuracy: {test_acc:.4f}"
