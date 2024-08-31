@@ -71,7 +71,7 @@ class PhonemeImageGAN(T2BGenInterface, nn.Module):
 
         if self.input_shape == (4, 64, 32):
             self._g = Generator_4_64_32(latent_dim, classes, conditioning=conditioning, dec_emb_dim=dec_emb_dim).to(device)
-            self._d = Discriminator_4_64_32(128, classes, conditioning=conditioning).to(device)  # TODO
+            self._d = Discriminator_4_64_32(classes, conditioning=conditioning).to(device)  # TODO
         else:
             raise ValueError(f"Invalid input shape: {input_shape}")
         
@@ -303,7 +303,7 @@ class Generator_4_64_32(nn.Module):
         self, 
         latent_dim: int, 
         classes: List[int], 
-        conditioning: Optional[Literal["film"]], 
+        conditioning: Optional[Literal["film", "concat"]], 
         dec_emb_dim: int = None, 
         n_layers_film: int = 2
     ):
@@ -322,10 +322,10 @@ class Generator_4_64_32(nn.Module):
 
         if self.conditioning == "concat":
             assert dec_emb_dim is not None
-
             self.embedding = nn.Embedding(len(classes), self.dec_emb_dim)
             self.input_dim += self.dec_emb_dim
-        if self.conditioning == "film":
+
+        elif self.conditioning == "film":
             self.film = FiLM(conditioning_dim=len(classes), in_features=latent_dim, n_layers=n_layers_film)
 
         dec_hidden_dim = 512
@@ -423,18 +423,29 @@ class Discriminator_128_8_8(nn.Module):
 class Discriminator_4_64_32(nn.Module):
     def __init__(
         self, 
-        n_channels: int, 
         classes: List[int],
-        conditioning: Optional[Literal["film"]],
+        conditioning: Optional[Literal["film", "concat"]], 
+        n_layers_film: int = 2
     ):
         super(Discriminator_4_64_32, self).__init__()
         self.classes = classes
         self.n_classes = len(classes)
         self.input_shape = (4, 64, 32)
         self.conditioning = conditioning
+        self.n_channels = 4
+
+        if self.conditioning == "concat":
+            self.embedding = nn.Embedding(len(classes), 64*32)
+            self.n_channels += 1
+            print(f"self.n_channels = {self.n_channels}")
+            # self.input_shape = (n_channels + dec_emb_dim, 64, 32)  # Adjust input shape to account for concatenated embeddings
+
+        # if self.conditioning == "film":
+        #     self.film = FiLM(conditioning_dim=len(classes), in_features=4*64*32, n_layers=n_layers_film)
+
 
         self.model = nn.Sequential(
-            nn.Conv2d(4, 16, 3, 1, 1, bias=False),  # -> (16) x 64 x 32
+            nn.Conv2d(self.n_channels, 16, 3, 1, 1, bias=False),  # -> (16) x 64 x 32
             nn.LeakyReLU(0.2, inplace=True),
 
             nn.Conv2d(16, 32, 3, 2, 1, bias=False),  # -> (32) x 32 x 16
@@ -457,9 +468,17 @@ class Discriminator_4_64_32(nn.Module):
         self.fc2 = nn.Linear(512, 1)
         
 
-    def forward(self, img: torch.Tensor, y: torch.Tensor):
+    def forward(self, img: torch.Tensor, labels: torch.Tensor):
         img = img.view(-1, *self.input_shape)
         d_in = img
+
+        if self.conditioning == "concat": 
+            y_indices = labels_to_indices(labels, self.classes)
+
+            if self.conditioning == "concat":
+                y_emb = self.embedding(y_indices)
+                y_emb = y_emb.view(-1, 1, 64, 32)
+                d_in = torch.concat((img, y_emb), dim=1)
 
         out = self.model(d_in)
         out = out.view(out.size(0), -1)

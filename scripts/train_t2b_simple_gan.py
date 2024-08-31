@@ -258,12 +258,12 @@ def plot_accuracies(accs: list, out_file: Path, title: str) -> None:
 
 
 if __name__ == "__main__":
-    for lr_g, lr_d in [(5e-4, 5e-5)]:  #, (1e-5, 1e-5), (1e-4, 1e-5)]:  # [(5e-05, 5e-05), (1e-04, 1e-05), (1e-05, 1e-05)]:  #, 1e-5, 1e-3]:  # [1e-3, 1e-4, 1e-5]:
+    for lr_g, lr_d in [(5e-4, 5e-5), (1e-5, 5e-5)]:  #, (1e-5, 1e-5), (1e-4, 1e-5)]:  # [(5e-05, 5e-05), (1e-04, 1e-05), (1e-05, 1e-05)]:  #, 1e-5, 1e-3]:  # [1e-3, 1e-4, 1e-5]:
         for n_critic in [5]:  # , 2]:
             for latent_dim in [256]:
-                for phoneme_cls in [[3],]:
-                    for conditioning in [None]:
-                        for dec_emb_dim in [None]:
+                for phoneme_cls in [[3, 31],]:
+                    for conditioning in ["concat"]:
+                        for dec_emb_dim in [64]:
                     
                             # if (factor_lr_d == 0.05 and n_critic==2) or (factor_lr_d == 0.01 and n_critic==1):
 
@@ -309,7 +309,7 @@ if __name__ == "__main__":
                                 ROOT_DIR
                                 / "evaluation"
                                 / "gan"
-                                / "test__run_20240829_gradient_penatly"
+                                / "test__run_20240829_concat_added_to_discriminator"
                                 / f"gan_{args['timestamp']}_in_{'_'.join(map(str, args['input_shape']))}__latdim_{args['latent_dim']}__lrg_{args['lr_g']}__lrd_{args['lr_d']}__phoneme_cls_{'_'.join(map(str, args['phoneme_cls']))}__cond_{args['conditioning']}__dec_emb_dim_{args['dec_emb_dim']}"
                             ))
 
