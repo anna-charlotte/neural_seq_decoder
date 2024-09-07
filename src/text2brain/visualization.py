@@ -14,29 +14,47 @@ from neural_decoder.phoneme_utils import PHONE_DEF, ROOT_DIR
 from evaluation import compute_auroc_with_stderr
 
 
-def plot_aurocs_with_error_bars(aurocs, errs, x_labels, out_file: Path, title="AUROC Plot", ylabel="AUROC", xlabel="Models", color='blue'):
+def plot_aurocs_with_error_bars(aurocs, errs, x_labels, out_file: Path, title="AUROC Plot", ylabel="AUROC", xlabel="Models", colors=None, figsize=(10, 6)):
 
     aurocs = np.array(aurocs)
     errs = np.array(errs)
     x_labels = [str(x) for x in x_labels]
 
-    plt.figure(figsize=(10, 6))
+    plt.rcParams.update({
+        'axes.titlesize': 17.5,
+        'axes.labelsize': 15.5,
+        'xtick.labelsize': 13.5,
+        'ytick.labelsize': 13.5,
+        'legend.fontsize': 13.5,
+        'font.size': 13.5
+    })
+
+    plt.figure(figsize=figsize)
+    if colors is None:
+        colors = 'skyblue'
+    elif isinstance(colors, list) and len(colors) != len(aurocs):
+        raise ValueError("The length of the colors list must match the number of bars.")
+
     
-    plt.bar(x_labels, aurocs, yerr=errs, capsize=5, color="skyblue", edgecolor='black')
+    plt.bar(x_labels, aurocs, yerr=errs, capsize=5, color=colors, edgecolor='black')
 
     plt.title(title)
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
     
     range_auroc = max(aurocs) - min(aurocs)
-    min_padding = range_auroc / 3
-    max_padding = range_auroc / 4
-    plt.ylim(min(aurocs) - min_padding, max(aurocs) + max_padding)
+    y_min = min(aurocs) - range_auroc / 3
+    y_max = max(aurocs) + range_auroc / 4
+    if y_max - y_min < 0.03:
+        y_min -= 0.005
+        y_max += 0.005
+    plt.ylim(y_min, y_max)
 
     # plt.xticks(ha='right')
     plt.grid(True, linestyle='--', alpha=0.7)
-
     plt.tight_layout()
+
+    print(f"Saving AUROC plot to: {out_file}")
     plt.savefig(out_file)
     plt.close()
 
