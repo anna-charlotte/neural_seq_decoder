@@ -113,6 +113,7 @@ def main(args: dict) -> None:
         n_critic=args["n_critic"],
         lr_g=args["lr_g"],
         lr_d=args["lr_d"],
+        cond_bn=args["cond_bn"]
     )
     args["model_class"] = gan.__class__.__name__
 
@@ -202,32 +203,33 @@ def main(args: dict) -> None:
             file = out_dir / f"modelWeights_{epoch}"
             gan.save_state_dict(file)
 
-            stats = train_phoneme_classifier(
-                gen_models=[gan],
-                n_samples_train_syn=10_000,
-                n_samples_val=2_000,
-                val_dl_real=val_dl, 
-                test_dl_real=test_dl,
-                phoneme_classes=phoneme_cls,
-                input_shape=(128, 8, 8),
-                batch_size=64,
-                n_epochs=100, 
-                patience=40,
-                lr=1e-4,
-                device=device,
-                out_dir=out_dir,
-            )
+            if len(classes) > 1:
+                stats = train_phoneme_classifier(
+                    gen_models=[gan],
+                    n_samples_train_syn=10_000,
+                    n_samples_val=2_000,
+                    val_dl_real=val_dl, 
+                    test_dl_real=test_dl,
+                    phoneme_classes=classes,
+                    input_shape=(128, 8, 8),
+                    batch_size=64,
+                    n_epochs=100, 
+                    patience=40,
+                    lr=1e-4,
+                    device=device,
+                    out_dir=out_dir,
+                )
 
-            val_aurocs.append(max(stats["val_aurocs_macro"]["val-dl-real"]))
-            test_aurocs.append(stats["test_auroc_macro"])
-            val_f1s.append(max(stats["val_f1_macro"]["val-dl-real"]))
-            test_f1s.append(stats["test_f1_macro"])
-            epochs.append(epoch)
+                val_aurocs.append(max(stats["val_aurocs_macro"]["val-dl-real"]))
+                test_aurocs.append(stats["test_auroc_macro"])
+                val_f1s.append(max(stats["val_f1_macro"]["val-dl-real"]))
+                test_f1s.append(stats["test_f1_macro"])
+                epochs.append(epoch)
 
-            bar_plot(val_aurocs, epochs, out_file=plot_dir / f"stats_aurocs_val.png", title="AUROC on validation set (real)", ylabel="AUROC", xlabel="Epoch", color='blue')
-            bar_plot(test_aurocs, epochs, out_file=plot_dir / f"stats_aurocs_test.png", title="AUROC on test set (real)", ylabel="AUROC", xlabel="Epoch", color='blue')
-            bar_plot(val_f1s, epochs, out_file=plot_dir / f"stats_f1s_val.png", title="F1 scores on validation set (real)", ylabel="F1 Score", xlabel="Epoch", color='blue')
-            bar_plot(test_f1s, epochs, out_file=plot_dir / f"stats_f1s_test.png", title="F1 scores on test set (real) ", ylabel="F1 Score", xlabel="Epoch", color='blue')
+                bar_plot(val_aurocs, epochs, out_file=plot_dir / f"stats_aurocs_val.png", title="AUROC on validation set (real)", ylabel="AUROC", xlabel="Epoch", color='blue')
+                bar_plot(test_aurocs, epochs, out_file=plot_dir / f"stats_aurocs_test.png", title="AUROC on test set (real)", ylabel="AUROC", xlabel="Epoch", color='blue')
+                bar_plot(val_f1s, epochs, out_file=plot_dir / f"stats_f1s_val.png", title="F1 scores on validation set (real)", ylabel="F1 Score", xlabel="Epoch", color='blue')
+                bar_plot(test_f1s, epochs, out_file=plot_dir / f"stats_f1s_test.png", title="F1 scores on test set (real) ", ylabel="F1 Score", xlabel="Epoch", color='blue')
 
         plot_gan_losses(
             G_losses,
@@ -258,14 +260,13 @@ def plot_accuracies(accs: list, out_file: Path, title: str) -> None:
 
 
 if __name__ == "__main__":
-    for lr_g, lr_d in [(5e-4, 5e-5), (1e-5, 5e-5)]:  #, (1e-5, 1e-5), (1e-4, 1e-5)]:  # [(5e-05, 5e-05), (1e-04, 1e-05), (1e-05, 1e-05)]:  #, 1e-5, 1e-3]:  # [1e-3, 1e-4, 1e-5]:
+    for lr_g, lr_d in [(1e-4, 5e-5),]:  #, (1e-5, 1e-5), (1e-4, 1e-5)]:  # [(5e-05, 5e-05), (1e-04, 1e-05), (1e-05, 1e-05)]:  #, 1e-5, 1e-3]:  # [1e-3, 1e-4, 1e-5]:
         for n_critic in [5]:  # , 2]:
             for latent_dim in [256]:
-                for phoneme_cls in [[3, 31],]:
-                    for conditioning in ["concat"]:
-                        for dec_emb_dim in [64]:
-                    
-                            # if (factor_lr_d == 0.05 and n_critic==2) or (factor_lr_d == 0.01 and n_critic==1):
+                for phoneme_cls in [[3],]:
+                    for conditioning in [None]:
+                        for dec_emb_dim in [None]:
+                            args["cond_bn"] = False
 
                             now = datetime.now()
                             timestamp = now.strftime("%Y%m%d_%H%M%S")
@@ -285,7 +286,7 @@ if __name__ == "__main__":
                             args["dec_emb_dim"] = dec_emb_dim
                             args["input_shape"] = (4, 64, 32)
 
-                            args["n_epochs"] = 2_500
+                            args["n_epochs"] = 1800
                             args["lr_g"] = lr_g
                             args["lr_d"] = lr_d
                             
@@ -309,7 +310,7 @@ if __name__ == "__main__":
                                 ROOT_DIR
                                 / "evaluation"
                                 / "gan"
-                                / "test__run_20240829_concat_added_to_discriminator"
+                                / f"test__run_20240829_cond_None"  # "test__run_20240829_gradient_penatly"
                                 / f"gan_{args['timestamp']}_in_{'_'.join(map(str, args['input_shape']))}__latdim_{args['latent_dim']}__lrg_{args['lr_g']}__lrd_{args['lr_d']}__phoneme_cls_{'_'.join(map(str, args['phoneme_cls']))}__cond_{args['conditioning']}__dec_emb_dim_{args['dec_emb_dim']}"
                             ))
 

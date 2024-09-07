@@ -4,10 +4,10 @@
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks-per-node=4
 #SBATCH --mem-per-cpu=8G
-#SBATCH --time=48:00:00
-#SBATCH --job-name=plot_cond_dim_experiment
+# #SBATCH --time=12:00:00
+#SBATCH --job-name=evallatExp
 #SBATCH --partition=long
-#SBATCH --output=/data/engs-pnpl/lina4471/repos/neural_seq_decoder/out/plot_cond_dim_experiment_medium_2
+#SBATCH --output=/data/engs-pnpl/lina4471/repos/neural_seq_decoder/out/cond-None_looking_for_best.%j.out
 #SBATCH --mail-type=BEGIN,END
 #SBATCH --mail-user=anna.gerhaher@linacre.ox.ac.uk
 

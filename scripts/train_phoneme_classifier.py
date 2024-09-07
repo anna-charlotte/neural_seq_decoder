@@ -23,10 +23,7 @@ from torchvision import transforms
 from data.augmentations import GaussianSmoothing
 from data.dataset import PhonemeDataset, SyntheticPhonemeDataset
 from data.dataloader import MergedDataLoader
-from neural_decoder.model_phoneme_classifier import (
-    PhonemeClassifier,
-    train_phoneme_classifier,
-)
+from neural_decoder.model_phoneme_classifier import PhonemeClassifier
 from neural_decoder.transforms import (
     AddOneDimensionTransform,
     ReorderChannelTransform,
@@ -207,21 +204,6 @@ def main(args: dict) -> None:
             collate_fn=None,
         )
 
-
-        # synthetic_ds = gen_model.create_synthetic_phoneme_dataset(
-        #     n_samples=args["generative_model_n_samples"],
-        #     neural_window_shape=(1, 256, 32),
-        # )
-
-        # synthetic_dl = DataLoader(
-        #     synthetic_ds,
-        #     batch_size=batch_size,
-        #     shuffle=True,
-        #     num_workers=0,
-        #     pin_memory=True,
-        #     collate_fn=None,
-        # )
-
         train_dl = MergedDataLoader(
             loader1=synthetic_dl, loader2=train_dl_real, prop1=args["generative_model_proportion"]
         )
@@ -233,39 +215,28 @@ def main(args: dict) -> None:
     args["n_classes"] = n_classes
     model = PhonemeClassifier(classes=phoneme_classes, input_shape=args["input_shape"]).to(device)
 
-    n_epochs = args["n_epochs"]
-    lr = args["lr"]
-    optimizer = optim.AdamW(model.parameters(), lr=lr)
-
-    if n_classes == 2:
-        criterion = nn.BCEWithLogitsLoss()
-    else:
-        criterion = nn.CrossEntropyLoss()
+    optimizer = optim.AdamW(model.parameters(), lr=args["lr"])
+    
 
     with open(out_dir / "args", "wb") as file:
         pickle.dump(args, file)
     with open(out_dir / "args.json", "w") as file:
         json.dump(args, file, indent=4)
 
-    # print(f"len(train_dl.dataset) = {len(train_dl.dataset)}")
-    # print(f"len(synthetic_dl.dataset) = {len(synthetic_dl.dataset)}")
-    print(f"len(val_dl_real.dataset) = {len(val_dl_real.dataset)}")
-    print(f"len(test_dl_real.dataset) = {len(test_dl_real.dataset)}")
-
-    output = train_phoneme_classifier(
-        model=model,
+    output = model.train_model(
         train_dl=train_dl,
-        val_dls=[val_dl_real],  # test_dl,
+        val_dls=[val_dl_real],
         test_dl=test_dl_real,
         n_classes=n_classes,
         optimizer=optimizer,
-        criterion=criterion,
+        criterion=nn.BCEWithLogitsLoss() if n_classes == 2 else nn.CrossEntropyLoss(),
         device=device,
         out_dir=out_dir,
-        n_epochs=n_epochs,
+        n_epochs=args["n_epochs"],
         patience=args["patience"],
         model_classes=phoneme_classes,
     )
+    return output 
 
 
 if __name__ == "__main__":
@@ -309,8 +280,8 @@ if __name__ == "__main__":
 
                             #     f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_unconditional_20240809_044252/modelWeights_epoch_110",  # cls [3, 31]
 
-                                f"/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/test__PhonemeImageGAN_20240819_120647__phoneme_cls_3/modelWeights_1150",
-                                f"/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/test__PhonemeImageGAN_20240819_235138__phoneme_cls_31/modelWeights_1150"
+                                f"/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/test__PhonemeImageGAN_20240819_120647__phoneme_cls_3/modelWeights_1200",
+                                f"/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/test__PhonemeImageGAN_20240819_235138__phoneme_cls_31/modelWeights_1200"
 
                             ]
 

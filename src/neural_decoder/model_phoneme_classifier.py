@@ -232,26 +232,26 @@ class PhonemeClassifier(nn.Module):
                                 torch.save(all_preds, out_dir / "all_preds.pt")
                                 torch.save(all_labels, out_dir / "all_labels.pt")
 
-                                # Compute and plot the confusion matrix
-                                cm = confusion_matrix(all_labels, all_preds_np_argmax)
+                                # # Compute and plot the confusion matrix
+                                # cm = confusion_matrix(all_labels, all_preds_np_argmax)
 
-                                plt.figure(figsize=(10, 8))
-                                sns.heatmap(
-                                    cm,
-                                    annot=True,
-                                    fmt="d",
-                                    cmap="Blues",
-                                    xticklabels=PHONE_DEF,
-                                    yticklabels=PHONE_DEF,
-                                )
-                                plt.xlabel("Predicted Phoneme")
-                                plt.ylabel("True Phoneme")
-                                plt.title(
-                                    f"Confusion Matrix - Phoneme Classifier (epoch: {i_epoch}, batch: {j_batch})"
-                                )
-                                plt.savefig(ROOT_DIR / "plots" / "phoneme_classification_heatmap.png")
-                                plt.savefig(out_dir / "phoneme_classification_confusion_matrix.png")
-                                plt.close()
+                                # plt.figure(figsize=(10, 8))
+                                # sns.heatmap(
+                                #     cm,
+                                #     annot=True,
+                                #     fmt="d",
+                                #     cmap="Blues",
+                                #     xticklabels=PHONE_DEF,
+                                #     yticklabels=PHONE_DEF,
+                                # )
+                                # plt.xlabel("Predicted Phoneme")
+                                # plt.ylabel("True Phoneme")
+                                # plt.title(
+                                #     f"Confusion Matrix - Phoneme Classifier (epoch: {i_epoch}, batch: {j_batch})"
+                                # )
+                                # plt.savefig(ROOT_DIR / "plots" / "phoneme_classification_heatmap.png")
+                                # plt.savefig(out_dir / "phoneme_classification_confusion_matrix.png")
+                                # plt.close()
                             else:
                                 count_patience += 1
                                 if count_patience == patience:
@@ -389,7 +389,7 @@ def train_phoneme_classifier(
         # )
 
     train_ds_syn = SyntheticPhonemeDataset.combine_datasets(datasets=datasets)
-    assert len(train_ds_syn) == n_samples_train_syn
+    assert len(train_ds_syn) == n_samples_train_syn, f"len(train_ds_syn) = {len(train_ds_syn)}, n_samples_train_syn = {n_samples_train_syn}"
     print(f"train_ds_syn.classes = {train_ds_syn.classes}")
     print(f"phoneme_classes = {phoneme_classes}")
     assert train_ds_syn.classes == phoneme_classes
@@ -458,5 +458,213 @@ def train_phoneme_classifier(
         patience=patience,
         model_classes=phoneme_classes,
     )
-    print(f"output.keys() = {output.keys()}")
     return output 
+
+
+
+def train_phoneme_classifier_real(
+    train_dl: DataLoader,
+    val_dl: DataLoader,
+    test_dl: DataLoader,
+    classes: list,
+    input_shape: tuple, 
+    lr: float, 
+    device,
+    out_dir,
+    n_epochs: int,
+    patience: int,
+    model_classes: list,
+) -> dict:
+
+    n_classes = len(classes)
+    # args["n_classes"] = n_classes
+    model = PhonemeClassifier(classes=classes, input_shape=input_shape).to(device)
+
+    # n_epochs = args["n_epochs"]
+    # lr = args["lr"]
+    optimizer = optim.AdamW(model.parameters(), lr=lr)
+    
+    if n_classes == 2:
+        criterion = nn.BCEWithLogitsLoss()
+    else:
+        criterion = nn.CrossEntropyLoss()
+
+    print(f"len(train_dl.dataset) = {len(train_dl.dataset)}")
+    print(f"len(val_dl.dataset) = {len(val_dl.dataset)}")
+    print(f"len(test_dl.dataset) = {len(test_dl.dataset)}")
+
+    output = model.train_model(
+        train_dl=train_dl_syn,
+        val_dls=[val_dl],
+        test_dl=test_dl,
+        n_classes=n_classes,
+        optimizer=optimizer,
+        criterion=criterion,
+        device=device,
+        out_dir=out_dir,
+        n_epochs=n_epochs,
+        patience=patience,
+        model_classes=phoneme_classes,
+    )
+    return output 
+
+
+
+
+
+
+
+
+
+    print("Train PhonemeClassifier model ...")
+    stop_training = False
+    best_val_acc = 0.0
+    count_patience = 0
+    all_train_losses = []
+    all_val_losses = {dl.name: [] for dl in val_dls}
+    all_val_aurocs_macro = {dl.name: [] for dl in val_dls}
+    all_val_aurocs_micro = {dl.name: [] for dl in val_dls}
+    all_val_f1_macro = {dl.name: [] for dl in val_dls}
+    all_val_f1_micro = {dl.name: [] for dl in val_dls}
+    all_val_balanced_acc = {dl.name: [] for dl in val_dls}
+    time_steps = []
+    binary = True if n_classes == 2 else False
+
+
+    for i_epoch in range(n_epochs):
+        for j_batch, data in enumerate(train_dl):
+            model.train()
+            optimizer.zero_grad()
+
+            X, y, logits, dayIdx = data  # X.size = (batch_size, 1, 32, 256), model will take of reshaping
+            y = _get_indices_in_classes(y, torch.tensor(model_classes, device=y.device)).to(y.device)
+            X, y, logits, dayIdx = (X.to(device), y.to(device), logits.to(device), dayIdx.to(device))
+
+            pred = model(X)
+            
+            if binary:
+                y = y.view(y.size(0), 1)
+                loss = criterion(pred, y.float())
+            else:
+                loss = criterion(pred, y.long())
+
+            loss.backward()
+            optimizer.step()
+            all_train_losses.append(loss.item() / y.size(0))
+
+            # evaluate
+            if j_batch % 100 == 0:
+                # print("\nEval ...")
+                time_steps.append({"epoch": i_epoch, "batch": j_batch})
+
+                for val_dl in val_dls:
+                    curr_stats = eval_phoneme_classifier(model, val_dl, criterion, device)
+
+                    val_loss = curr_stats.loss
+                    all_val_losses[val_dl.name].append(val_loss)
+
+                    val_acc = curr_stats.acc
+                    class_accuracies = curr_stats.class_accuracies
+
+                    all_labels = curr_stats.all_labels_pt
+                    all_preds = curr_stats.all_preds_pt
+                    all_preds_np_argmax = curr_stats.all_preds_np_argmax
+
+                    # auroc
+                    val_auroc_macro = curr_stats.auroc_macro
+                    all_val_aurocs_macro[val_dl.name].append(val_auroc_macro)
+
+                    val_dl_auroc_micro = curr_stats.auroc_micro
+                    all_val_aurocs_micro[val_dl.name].append(val_dl_auroc_micro)
+
+                    # f1 score
+                    val_f1_macro = curr_stats.f1_macro
+                    val_f1_micro = curr_stats.f1_micro
+                    all_val_f1_macro[val_dl.name].append(val_f1_macro)
+                    all_val_f1_micro[val_dl.name].append(val_f1_micro)
+
+                    # balanced cccuracy
+                    val_balanced_acc = curr_stats.balanced_acc
+                    all_val_balanced_acc[val_dl.name].append(val_balanced_acc)
+
+                    print(
+                        f"dl: {val_dl.name},\t epoch: {i_epoch}, batch: {j_batch}, val AUROC macro: {val_auroc_macro:.4f}, val AUROC micro: {val_dl_auroc_micro:.4f}, val accuracy: {val_acc:.4f}, val_loss: {val_loss:.4f}\t Patience counter: {count_patience} out of {patience}"
+                    )
+                    
+                    stats = {
+                        "time_steps": time_steps,
+                        "train_losses": all_train_losses,
+                        "val_losses": all_val_losses,
+                        "val_aurocs_micro": all_val_aurocs_micro,
+                        "val_aurocs_macro": all_val_aurocs_macro,
+                        "val_f1_micro": all_val_f1_micro,
+                        "val_f1_macro": all_val_f1_macro,
+                        "val_balanced_acc": all_val_balanced_acc,
+                    }
+                    if "real" in val_dl.name:
+                        stats["best_val_acc"] =  best_val_acc,
+                    
+                    for n, acc in enumerate(class_accuracies):
+                        stats[f"val_acc_for_phoneme_{n}_{PHONE_DEF[n]}"] = acc
+
+                    with open(out_dir / f"trainingStats.json", "w") as file:
+                        json.dump(stats, file, indent=4)
+
+                    if "real" in val_dl.name:
+                        if val_acc > best_val_acc:
+                
+                            count_patience = 0
+                            model_file = out_dir / "modelWeights"
+                            
+                            torch.save(model.state_dict(), model_file)
+                            best_val_acc = val_acc
+                            print(f"New best (real) val accuracy: {best_val_acc:.4f} (epoch: {i_epoch})")
+                            
+                            if test_dl is not None:
+                                test_stats = eval_phoneme_classifier(model, test_dl, criterion, device)
+                                test_acc = test_stats.acc
+                                test_y_true = test_stats.all_labels_pt
+                                test_y_pred = test_stats.all_preds_pt
+                                
+                                print(f"Test accuracies at the time of best validation acc: test_acc={test_acc} (test_dl.name={test_dl.name})")
+
+                            # Save the predictions and true labels
+                            torch.save(all_preds, out_dir / "all_preds.pt")
+                            torch.save(all_labels, out_dir / "all_labels.pt")
+
+                            # Compute and plot the confusion matrix
+                            cm = confusion_matrix(all_labels, all_preds_np_argmax)
+
+                            plt.figure(figsize=(10, 8))
+                            sns.heatmap(
+                                cm,
+                                annot=True,
+                                fmt="d",
+                                cmap="Blues",
+                                xticklabels=PHONE_DEF,
+                                yticklabels=PHONE_DEF,
+                            )
+                            plt.xlabel("Predicted Phoneme")
+                            plt.ylabel("True Phoneme")
+                            plt.title(
+                                f"Confusion Matrix - Phoneme Classifier (epoch: {i_epoch}, batch: {j_batch})"
+                            )
+                            plt.savefig(ROOT_DIR / "plots" / "phoneme_classification_heatmap.png")
+                            plt.savefig(out_dir / "phoneme_classification_confusion_matrix.png")
+                            plt.close()
+                        else:
+                            count_patience += 1
+                            if count_patience == patience:
+                                stop_training = True
+                                print(f"Stop training due to no improvements after {patience} steps ...")
+                                print(f"Highest val acc (real) was: \t{best_val_acc:.4f}")
+                                print(f"Highest test acc (real) was: \t{test_acc:.4f}")
+                                break
+
+            if stop_training:
+                break
+
+        if stop_training:
+            break
+
+    return stats

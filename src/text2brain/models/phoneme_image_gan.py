@@ -13,6 +13,7 @@ import torch.utils.data
 from tqdm import tqdm
 
 from data.dataset import SyntheticPhonemeDataset
+from text2brain.conditioning.conditional_batch_norm import ConditionalBatchNorm2d
 from text2brain.models.conditioning_film import FiLM
 from text2brain.models.model_interface import T2BGenInterface
 from text2brain.models.utils import labels_to_indices
@@ -60,17 +61,19 @@ class PhonemeImageGAN(T2BGenInterface, nn.Module):
         lr_d: float,
         dec_emb_dim: int = None,
         n_critic: int = 5,
+        cond_bn: bool = False
     ):
         super(PhonemeImageGAN, self).__init__()
         self.lambda_gp = 10
         self.conditioning = conditioning
+        self.cond_bn = cond_bn
         
         self.classes = classes
         self.n_classes = len(self.classes)
         self.input_shape = tuple(input_shape)
 
         if self.input_shape == (4, 64, 32):
-            self._g = Generator_4_64_32(latent_dim, classes, conditioning=conditioning, dec_emb_dim=dec_emb_dim).to(device)
+            self._g = Generator_4_64_32(latent_dim, classes, conditioning=conditioning, dec_emb_dim=dec_emb_dim, cond_bn=cond_bn).to(device)
             self._d = Discriminator_4_64_32(classes, conditioning=conditioning).to(device)  # TODO
         else:
             raise ValueError(f"Invalid input shape: {input_shape}")
@@ -95,9 +98,9 @@ class PhonemeImageGAN(T2BGenInterface, nn.Module):
             nn.init.xavier_uniform_(m.weight)
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0.01)
-        elif isinstance(m, nn.BatchNorm2d):
-            nn.init.constant_(m.weight, 1)
-            nn.init.constant_(m.bias, 0)
+        # elif isinstance(m, nn.BatchNorm2d):
+        #     nn.init.constant_(m.weight, 1)
+        #     nn.init.constant_(m.bias, 0)
 
     def compute_gradient_penalty(self, real_samples, fake_samples, y):
         # random weight term for interpolation between real and fake samples
@@ -143,14 +146,6 @@ class PhonemeImageGAN(T2BGenInterface, nn.Module):
 
             loss_D.backward()
 
-
-            # grad_norms = []
-            # for p in self._d.parameters():
-            #     if p.grad is not None:
-            #         grad_norms.append(p.grad.norm(2).item())
-            # print(f"Discriminator Gradient Norms: {grad_norms}")
-            
-            
             # grad_norms = []
             # for p in self._d.parameters():
             #     if p.grad is not None:
@@ -159,6 +154,7 @@ class PhonemeImageGAN(T2BGenInterface, nn.Module):
             
             self.optim_d.step()
             losses_D.append(loss_D)
+
 
         loss_D = sum(losses_D) / len(losses_D)
 
@@ -181,20 +177,23 @@ class PhonemeImageGAN(T2BGenInterface, nn.Module):
 
     def generate(self, label: torch.Tensor = None):
         """Generate an image. Label is the class label, not the index."""
-        noise = torch.randn(1, self._g.latent_dim, device=self.device)
+        noise = torch.randn(label.size(0), self._g.latent_dim, device=self.device)
         return self.generate_from_given_noise(noise=noise, label=label)
 
     def generate_from_given_noise(self, noise: torch.Tensor, label: torch.Tensor = None):
         """Generate an image. Label is the class label, not the index."""
         self._g.eval()
-        assert noise.size(0) == 1
         assert noise.size(1) == self._g.latent_dim
         
         gen_img = self._g(noise, label)
         return gen_img
 
 
-    def create_synthetic_phoneme_dataset(self, n_samples: int, neural_window_shape: Tuple[int, int, int] = (1, 256, 32)) -> SyntheticPhonemeDataset:
+    def create_synthetic_phoneme_dataset(
+        self, 
+        n_samples: int, 
+        neural_window_shape: Tuple[int, int, int] = (1, 256, 32)
+    ) -> SyntheticPhonemeDataset:
         
         assert isinstance(neural_window_shape, tuple)
 
@@ -207,13 +206,17 @@ class PhonemeImageGAN(T2BGenInterface, nn.Module):
         with torch.no_grad():
             for label in classes:
                 label = torch.tensor([label]).to(self.device)
+                label = label.repeat(100)
 
-                for _ in range(n_per_class):
+                for _ in range(int(n_per_class / 100)):
                     neural_window = self.generate(label=label)
-                    neural_window = neural_window.view(neural_window.size(0), *neural_window_shape)
+                    neural_window = neural_window.view(neural_window.size(0), *neural_window_shape)                    
 
-                    neural_windows.append(neural_window.to("cpu"))
-                    phoneme_labels.append(label.to("cpu"))
+                    for i in range(len(neural_window)):
+                        nw = neural_window[i].to("cpu")
+                        l = label[i].to("cpu").unsqueeze(0)
+                        neural_windows.append(nw)
+                        phoneme_labels.append(l)
 
         return SyntheticPhonemeDataset(neural_windows[:n_samples], phoneme_labels[:n_samples])
 
@@ -228,6 +231,11 @@ class PhonemeImageGAN(T2BGenInterface, nn.Module):
             dec_emb_dim = args["dec_emb_dim"]
         else:
             dec_emb_dim = None
+
+        if "cond_bn" in args.keys():
+            cond_bn = args["cond_bn"]
+        else:
+            cond_bn = False
     
         model = cls(
             input_shape=tuple(args["input_shape"]),
@@ -235,6 +243,7 @@ class PhonemeImageGAN(T2BGenInterface, nn.Module):
             classes=args["phoneme_cls"],
             conditioning=args["conditioning"], 
             dec_emb_dim=dec_emb_dim,
+            cond_bn=cond_bn,
             device=args["device"],
             lr_g=args["lr_g"],
             lr_d=args["lr_d"],
@@ -305,16 +314,16 @@ class Generator_4_64_32(nn.Module):
         classes: List[int], 
         conditioning: Optional[Literal["film", "concat"]], 
         dec_emb_dim: int = None, 
-        n_layers_film: int = 2
+        n_layers_film: int = 2,
+        cond_bn: bool = False
     ):
         super(Generator_4_64_32, self).__init__()
 
         self.input_shape = (4, 64, 32)
         self.classes = classes
         self.n_classes = len(classes)
-        # if self.n_classes == 1:
-        #     assert conditioning is None, f"Only one class is present ({classes}), but conditioning is not None: {conditioning}"
-        
+
+        self.cond_bn = cond_bn
         self.conditioning = conditioning
         self.dec_emb_dim = dec_emb_dim
         self.latent_dim = latent_dim
@@ -334,27 +343,31 @@ class Generator_4_64_32(nn.Module):
         self.fc = nn.Sequential(nn.Linear(self.input_dim, dec_hidden_dim * 2 * 1), nn.LeakyReLU(0.2, inplace=True))
         self.model = nn.Sequential(
             nn.ConvTranspose2d(dec_hidden_dim, 256, 3, 2, 1, 1, bias=False),  # -> (256) x 4 x 2
-            nn.BatchNorm2d(256),
+            ConditionalBatchNorm2d(256, self.n_classes) if cond_bn else nn.BatchNorm2d(256),
             nn.LeakyReLU(0.2, inplace=True),
+
             nn.ConvTranspose2d(256, 128, 3, 2, 1, 1, bias=False),  # -> (128) x 8 x 4
-            nn.BatchNorm2d(128),
+            ConditionalBatchNorm2d(128, self.n_classes) if cond_bn else nn.BatchNorm2d(128),
             nn.LeakyReLU(0.2, inplace=True),
+
             nn.ConvTranspose2d(128, 64, 3, 2, 1, 1, bias=False),  # -> (64) x 16 x 8
-            nn.BatchNorm2d(64),
+            ConditionalBatchNorm2d(64, self.n_classes) if cond_bn else nn.BatchNorm2d(64),
             nn.LeakyReLU(0.2, inplace=True),
+
             nn.ConvTranspose2d(64, 32, 3, 2, 1, 1, bias=False),  # -> (32) x 32 x 16
-            nn.BatchNorm2d(32),
+            ConditionalBatchNorm2d(32, self.n_classes) if cond_bn else nn.BatchNorm2d(32),
             nn.LeakyReLU(0.2, inplace=True),
+
             nn.ConvTranspose2d(32, 16, 3, 2, 1, 1, bias=False),  # -> (16) x 64 x 32
-            nn.BatchNorm2d(16),
+            ConditionalBatchNorm2d(16, self.n_classes) if cond_bn else nn.BatchNorm2d(16),
             nn.LeakyReLU(0.2, inplace=True),
+            
             nn.ConvTranspose2d(16, 4, 3, 1, 1, bias=False),  # -> (4) x 64 x 32
             nn.Tanh(),
         )
 
     def forward(self, noise: torch.Tensor, labels: Optional[torch.Tensor] = None):
         """Forward pass of the generator. Takes y as indices indices, not class labels. """
-        
         if self.conditioning is not None: 
             assert noise.size(0) == labels.size(0)
             y_indices = labels_to_indices(labels, self.classes)
@@ -370,7 +383,12 @@ class Generator_4_64_32(nn.Module):
 
         h = self.fc(h)
         h = h.view(h.size(0), self.dec_hidden_dim, 2, 1)  # reshape to (dec_hidden_dim) x 2 x 1
-        h = self.model(h)
+        for layer in self.model:
+            if isinstance(layer, ConditionalBatchNorm2d):
+                h = layer(h, y_indices)
+            else:
+                h = layer(h)
+
         h = h.view(-1, 1, 256, 32)
         return h
 
@@ -439,10 +457,8 @@ class Discriminator_4_64_32(nn.Module):
             self.n_channels += 1
             print(f"self.n_channels = {self.n_channels}")
             # self.input_shape = (n_channels + dec_emb_dim, 64, 32)  # Adjust input shape to account for concatenated embeddings
-
-        # if self.conditioning == "film":
-        #     self.film = FiLM(conditioning_dim=len(classes), in_features=4*64*32, n_layers=n_layers_film)
-
+        if self.conditioning == "film":
+            self.film = FiLM(conditioning_dim=len(classes), in_features=4*64*32, n_layers=n_layers_film)
 
         self.model = nn.Sequential(
             nn.Conv2d(self.n_channels, 16, 3, 1, 1, bias=False),  # -> (16) x 64 x 32
@@ -472,13 +488,16 @@ class Discriminator_4_64_32(nn.Module):
         img = img.view(-1, *self.input_shape)
         d_in = img
 
-        if self.conditioning == "concat": 
+        if self.conditioning is not None: 
             y_indices = labels_to_indices(labels, self.classes)
 
             if self.conditioning == "concat":
                 y_emb = self.embedding(y_indices)
                 y_emb = y_emb.view(-1, 1, 64, 32)
                 d_in = torch.concat((img, y_emb), dim=1)
+            if self.conditioning == "film":
+                y_one_hot = F.one_hot(y_indices, num_classes=len(self.classes)).float()
+                d_in = self.film(img, y_one_hot)
 
         out = self.model(d_in)
         out = out.view(out.size(0), -1)

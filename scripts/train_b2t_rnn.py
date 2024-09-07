@@ -1,4 +1,4 @@
-modelName = "speechBaseline4_test"
+modelName = "speechBaseline4"
 
 args = {}
 args["outputDir"] = "/home/lina4471/willett2023/competitionData/model/" + modelName

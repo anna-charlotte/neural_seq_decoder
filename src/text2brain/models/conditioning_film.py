@@ -30,6 +30,9 @@ class FiLM(nn.Module):
         gamma = self.scale_network(c)
         beta = self.shift_network(c)
 
+        gamma = gamma.reshape(x.shape)
+        beta = beta.reshape(x.shape)
+
         return gamma * x + beta
 
 
