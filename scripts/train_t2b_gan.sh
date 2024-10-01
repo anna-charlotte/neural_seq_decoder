@@ -5,19 +5,9 @@
 #SBATCH --ntasks-per-node=4
 #SBATCH --mem-per-cpu=8G
 #SBATCH --job-name=gan89concat
-
-# #SBATCH --time=00:10:00
-# #SBATCH --partition=devel
-# #SBATCH --output=/home/lina4471/willett2023/slurm_out/train_t2b_simple_gan_devel.%j.out
-
-# #SBATCH --time=24:00:00
-# #SBATCH --partition=medium
-# #SBATCH --output=/home/lina4471/willett2023/slurm_out/train_t2b_simple_gan_medium.%j.out
-
 #SBATCH --time=72:00:00
 #SBATCH --partition=long
-#SBATCH --output=/home/lina4471/willett2023/slurm_out/train_t2b_simple_gan_long64.%j.out
-
+#SBATCH --output=/home/lina4471/willett2023/slurm_out/train_t2b_gan_long64.%j.out
 #SBATCH --mail-type=BEGIN,END
 #SBATCH --mail-user=anna.gerhaher@linacre.ox.ac.uk
 
@@ -30,4 +20,4 @@ module load CMake/3.23.1-GCCcore-11.3.0
 module load GCC/11.3.0
 module load CUDA/12.0
 
-python -u $DATA/repos/neural_seq_decoder/scripts/train_t2b_simple_gan.py
+python -u $DATA/repos/neural_seq_decoder/scripts/train_t2b_gan.py
