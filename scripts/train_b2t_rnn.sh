@@ -1,4 +1,5 @@
 #!/bin/bash
+# file by willet et al.
 
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:v100:1

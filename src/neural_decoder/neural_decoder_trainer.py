@@ -1,3 +1,4 @@
+# file by willet et al.
 import json
 import os
 import pickle
@@ -41,9 +42,7 @@ def get_data_loader(
 
     if n_samples is not None:
         subset_indices = list(range(n_samples))
-        print(f"len(ds) = {len(ds)}")
         ds = Subset(ds, subset_indices)
-        print(f"len(ds) = {len(ds)}")
 
     sampler = None
     if class_weights is not None and n_samples is not None:
@@ -53,9 +52,7 @@ def get_data_loader(
         sampler = WeightedRandomSampler(
             weights=sample_weights, num_samples=len(sample_weights), replacement=True
         )
-    print(f"class_weights = {class_weights}")
-    print(f"n_samples = {n_samples}")
-    print(f"sampler = {sampler}")
+
 
     if class_weights is not None and shuffle:
         raise ValueError("class_weights option is mutually exclusive with shuffle option.")
@@ -76,8 +73,6 @@ def get_dataset_loaders(
     dataset_name: str, batch_size: int, dataset_cls: Type[Any] = SpeechDataset, phoneme_ds_filter: dict = {}
 ) -> Tuple[DataLoader, DataLoader, dict]:
     print("In get_dataset_loaders()")
-    # with open(dataset_name, "rb") as handle:
-    #     loaded_data = pickle.load(handle)
     loaded_data = load_pkl(dataset_name)
 
     padding_fnc = None
@@ -126,8 +121,6 @@ def trainModel(args):
     )
     if "datasetPathSynthetic" in args.keys() and args["datasetPathSynthetic"] != "":
         dataset_name = args["datasetPathSynthetic"]
-        # with open(dataset_name, "rb") as handle:
-        #     data = pickle.load(handle)
         data = load_pkl(dataset_name)
 
         synthetic_loader = get_data_loader(

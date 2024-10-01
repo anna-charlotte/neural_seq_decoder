@@ -1,3 +1,5 @@
+# file by willet et al.
+
 modelName = "speechBaseline4"
 
 args = {}

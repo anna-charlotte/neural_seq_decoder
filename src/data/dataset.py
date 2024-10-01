@@ -60,7 +60,7 @@ class BaseDataset(Dataset, ABC):
         """
         pass
 
-
+# file by willet et al.
 class SpeechDataset(BaseDataset):
     def prepare_data(self) -> None:
         self.n_trials = sum([len(d["sentenceDat"]) for d in self.data])

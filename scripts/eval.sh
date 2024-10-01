@@ -1,4 +1,5 @@
 #!/bin/bash
+# file by willet et al.
 
 #SBATCH --gres=gpu:1
 #SBATCH --job-name=eval
