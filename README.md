@@ -1,4 +1,4 @@
-### Repository for the dissertation "Brain Data Synthesis Using Deep Generative Models"
+# Repository for the dissertation "Brain Data Synthesis Using Deep Generative Models"
 
 This repository is based on a fork of the pytorch implementation of [Neural Sequence Decoder](https://github.com/fwillett/speechBCI/tree/main/NeuralDecoder)
 
@@ -22,7 +22,7 @@ And lastly:
 
 Now you are ready to go.
 
-# Dependencies
+## Dependencies
 ```
 CMake >= 3.14
 gcc >= 10.1
@@ -32,12 +32,11 @@ pytorch==1.13.1
 
 ## Reproducing results
 
-
-# Download the data
+### Download the data
 
 The data is publicly available and can be downloaded [here](https://datadryad.org/stash/dataset/doi:10.5061/dryad.x69p8czpq)
 
-# Train and evaluate generative models
+## Train and evaluate generative models
 
 There are several results to reproduce.
 
