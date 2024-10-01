@@ -36,7 +36,7 @@ pytorch==1.13.1
 
 The data is publicly available and can be downloaded [here](https://datadryad.org/stash/dataset/doi:10.5061/dryad.x69p8czpq)
 
-## Train and evaluate generative models
+### Train and evaluate generative models
 
 There are several results to reproduce.
 
