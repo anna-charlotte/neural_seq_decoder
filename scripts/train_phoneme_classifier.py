@@ -38,6 +38,8 @@ from text2brain.models.model_interface_load import load_t2b_gen_model
 from text2brain.models.phoneme_image_gan import _get_indices_in_classes
 from text2brain.visualization import plot_phoneme_distribution
 from utils import load_pkl, set_seeds
+from evaluation import compute_auroc_with_stderr, compute_auroc_with_confidence_interval
+from text2brain.visualization import plot_aurocs_with_error_bars
 
 
 def get_label_distribution(dataset):
@@ -115,6 +117,7 @@ def main(args: dict) -> None:
     print(f"transform = {transform.__class__.__name__}")
 
     # load train dataloader
+    print(f"\nargs['n_samples_real'] = {args['n_samples_real']}")
     train_dl_real = get_data_loader(
         data=load_pkl(args["train_set_path"]),
         batch_size=batch_size,
@@ -124,9 +127,12 @@ def main(args: dict) -> None:
         phoneme_ds_filter=phoneme_ds_filter,
         class_weights=class_weights,
         transform=transform,
+        n_samples=None if args["n_samples_real"] == 50913 else args["n_samples_real"]
     )
     train_dl_real.name = "train-real"
+    print(f"len(train_dl_real) = {len(train_dl_real)}")
     labels_train = get_label_distribution(train_dl_real.dataset)
+    
 
     # load val dataloader
     val_dl_real = get_data_loader(
@@ -142,11 +148,11 @@ def main(args: dict) -> None:
     val_dl_real.name = "val-real"
     labels_val = get_label_distribution(val_dl_real.dataset)
     class_counts_val = [labels_val[i] for i in range(1, 40)]
-    plot_phoneme_distribution(
-        class_counts_val,
-        ROOT_DIR / "plots" / "phoneme_distribution_test_set_VAL_SPLIT_correctly_classified_by_RNN.png",
-        f"Phoneme Distribution in Validation Set ({len(val_dl_real.dataset)} samples)",
-    )
+    # plot_phoneme_distribution(
+    #     class_counts_val,
+    #     ROOT_DIR / "plots" / "phoneme_distribution_test_set_VAL_SPLIT_correctly_classified_by_RNN.png",
+    #     f"Phoneme Distribution in Validation Set ({len(val_dl_real.dataset)} samples)",
+    # )
 
     # load test dataloader
     test_dl_real = get_data_loader(
@@ -162,11 +168,11 @@ def main(args: dict) -> None:
     test_dl_real.name = "test-real"
     labels_test = get_label_distribution(test_dl_real.dataset)
     class_counts_test = [labels_test[i] for i in range(1, 40)]
-    plot_phoneme_distribution(
-        class_counts_test,
-        ROOT_DIR / "plots" / "phoneme_distribution_test_set_TEST_SPLIT_correctly_classified_by_RNN.png",
-        f"Phoneme Distribution in Test Set ({len(test_dl_real.dataset)} samples)",
-    )
+    # plot_phoneme_distribution(
+    #     class_counts_test,
+    #     ROOT_DIR / "plots" / "phoneme_distribution_test_set_TEST_SPLIT_correctly_classified_by_RNN.png",
+    #     f"Phoneme Distribution in Test Set ({len(test_dl_real.dataset)} samples)",
+    # )
 
     if (
        "generative_model_weights_path" in args.keys()
@@ -226,7 +232,7 @@ def main(args: dict) -> None:
     output = model.train_model(
         train_dl=train_dl,
         val_dls=[val_dl_real],
-        test_dl=test_dl_real,
+        test_dl=[test_dl_real],
         n_classes=n_classes,
         optimizer=optimizer,
         criterion=nn.BCEWithLogitsLoss() if n_classes == 2 else nn.CrossEntropyLoss(),
@@ -242,73 +248,184 @@ def main(args: dict) -> None:
 if __name__ == "__main__":
     print("in main ...")
     args = {}
-    args["seed"] = 0
+
     args["device"] = "cuda" if torch.cuda.is_available() else "cpu"
     data_dir = Path("/data/engs-pnpl/lina4471/willett2023/competitionData")
     args["train_set_path"] = str(data_dir / "rnn_train_set_with_logits.pkl")
     args["val_set_path"] = str(data_dir / "rnn_test_set_with_logits_VAL_SPLIT.pkl")
     args["test_set_path"] = str(data_dir / "rnn_test_set_with_logits_TEST_SPLIT.pkl")
 
+    batch_size = 64
+    cls_weights = "sqrt"
+    lr = 1e-4
+
     # args["test_set_path"] = str(data_dir / "rnn_test_set_with_logits.pkl")
     args["n_epochs"] = 100
+    n_seeds = 1  # TODO
 
-    for synthetic_data in [False, True]:
-        for batch_size in [64]:
-            for cls_weights in [None]:
-                for lr in [1e-4]:
-                    for n_samples_syn in [40_000]:
-                        now = datetime.now()
-                        timestamp = now.strftime("%Y%m%d_%H%M%S")
+    bootstrap_iters = 1_000
 
-                        args["output_dir"] = (
-                            f"/data/engs-pnpl/lina4471/willett2023/phoneme_classifier/PhonemeClassifier_bs_{batch_size}__lr_{lr}__cls_ws_{cls_weights}__synthetic_{synthetic_data}_{timestamp}"
-                        )
-                        if synthetic_data:
-                            # args["generative_model_args_path"] = (
-                            #     "/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_20240708_103107/args"
-                            # )
-                            # args["generative_model_weights_path"] = f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_unconditional_20240809_044252/modelWeights_epoch_110"  # cls [3, 31]
-                            args["generative_model_weights_path"] = [
-                            #     # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_conditional_20240807_103730/modelWeights",  # cls 3
-                            #     # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_conditional_20240807_103916/modelWeights",  # cls 31
+    _aurocs = []
+    _sems = []
+    x_labels = []
+    colors = []
 
-                            #     # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_151151/modelWeights",  # cls 3
-                            #     # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_151204/modelWeights",  # cls 31
-                                
-                            #     # f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_182747/modelWeights_epoch_120",  # cls 3
-                            #     # f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_180210/modelWeights_epoch_120",  # cls 31
+    all_seed_aurocs = {}
 
-                            #     f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_unconditional_20240809_044252/modelWeights_epoch_110",  # cls [3, 31]
+    n_real = 50_913
+    n_syn = [5_000, 10_000, 30_000, 50_000]
+    combinations = [(False, n_real, 0)] + [(True, n_real, s) for s in n_syn]
+    # combinations = [(True, n_real, s) for s in n_syn]  # TODO
 
-                                f"/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/test__PhonemeImageGAN_20240819_120647__phoneme_cls_3/modelWeights_1200",
-                                f"/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/test__PhonemeImageGAN_20240819_235138__phoneme_cls_31/modelWeights_1200"
+    print(f"\ncombinations = {combinations}")
 
-                            ]
+    for synthetic_data, n_samples_real, n_samples_syn in combinations:
 
-                            args["generative_model_n_samples"] = n_samples_syn
-                            args["generative_model_proportion"] = None
-                            print(args["generative_model_weights_path"])
+        nsr = "all" if n_samples_real == None else n_samples_real
+        if synthetic_data == False:
+            model_name = f"Real \n({nsr})"
+        else:
+            model_name = f"Real + Syn \n ({nsr}, {n_samples_syn})"
 
-                        args["input_shape"] = (128, 8, 8)
-                        args["lr"] = lr
-                        args["batch_size"] = batch_size
-                        args["class_weights"] = cls_weights
-                        args["transform"] = "softsign"
-                        args["patience"] = 60
-                        args["gaussian_smoothing_kernel_size"] = 20
-                        args["gaussian_smoothing_sigma"] = 2.0
-                        args["phoneme_cls"] = [3, 31]  # list(range(1, 40))
-                        args["correctness_value"] = ["C"]
+        x_labels.append(model_name)
 
-                        args["unconditional"] = True
+        seed_aurocs = []
 
-                        # args["n_input_features"] = 41
-                        # args["n_output_features"] = 256
-                        # args["hidden_dim"] = 512
-                        # args["n_layers"] = 2
+        for seed in range(n_seeds):
+            args["seed"] = seed
+            now = datetime.now()
+            timestamp = now.strftime("%Y%m%d_%H%M%S")
 
-                        if "generative_model_weights_path" in args.keys():
-                            print("\nTrain phoeneme classifier using REAL and SYNTHETIC data!")
-                        else:
-                            print("\nTrain phoeneme classifier using only REAL data!")
-                        main(args)
+            args["output_dir"] = (
+                f"/data/engs-pnpl/lina4471/willett2023/phoneme_classifier/PhonemeClassifier_bs_{batch_size}__lr_{lr}__cls_ws_{cls_weights}__synthetic_{synthetic_data}" # _{timestamp}"
+            )
+            if synthetic_data:
+                # args["class_weights"] = None  # TODO
+                # args["generative_model_args_path"] = (
+                #     "/data/engs-pnpl/lina4471/willett2023/generative_models/PhonemeImageGAN_20240708_103107/args"
+                # )
+                # args["generative_model_weights_path"] = f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_unconditional_20240809_044252/modelWeights_epoch_110"  # cls [3, 31]
+                args["generative_model_weights_path"] = [
+                #     # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_conditional_20240807_103730/modelWeights",  # cls 3
+                #     # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs/VAE_conditional_20240807_103916/modelWeights",  # cls 31
+
+                #     # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_151151/modelWeights",  # cls 3
+                #     # "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_151204/modelWeights",  # cls 31
+                    
+                #     # f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_182747/modelWeights_epoch_120",  # cls 3
+                #     # f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_180210/modelWeights_epoch_120",  # cls 31
+
+                #     f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_unconditional_20240809_044252/modelWeights_epoch_110",  # cls [3, 31]
+
+                    # f"/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/test__PhonemeImageGAN_20240819_120647__phoneme_cls_3/modelWeights_1200",
+                    # f"/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/test__PhonemeImageGAN_20240819_235138__phoneme_cls_31/modelWeights_1200"
+                    
+                    # "/data/engs-pnpl/lina4471/willett2023/generative_models/experiments/gan_conditioning/ld_256/gan__conditioning_film__dec_emb_dim_None__phoneme_cls_3_31__seed_1/modelWeights_1120_best_auroc"
+
+                    # "/data/engs-pnpl/lina4471/willett2023/generative_models/experiments/gan_conditioning/ld_512/gan__conditioning_film__dec_emb_dim_None__phoneme_cls_3_31__seed_0/modelWeights_720_best_auroc"
+                    # "/data/engs-pnpl/lina4471/willett2023/generative_models/experiments/gan_conditioning/ld_512/gan__conditioning_film__dec_emb_dim_None__phoneme_cls_3_31__seed_1/modelWeights_820_best_auroc"
+                    # "/data/engs-pnpl/lina4471/willett2023/generative_models/experiments/gan_conditioning/ld_512/gan__conditioning_film__dec_emb_dim_None__phoneme_cls_3_31__seed_2/modelWeights_860_best_auroc"
+                    # "/data/engs-pnpl/lina4471/willett2023/generative_models/experiments/gan_conditioning/ld_512/gan__conditioning_film__dec_emb_dim_None__phoneme_cls_3_31__seed_3/modelWeights_1480_best_auroc"
+                    # "/data/engs-pnpl/lina4471/willett2023/generative_models/experiments/gan_conditioning/ld_512/gan__conditioning_film__dec_emb_dim_None__phoneme_cls_3_31__seed_4/modelWeights_680_best_auroc"
+                    # "/data/engs-pnpl/lina4471/willett2023/generative_models/experiments/gan_conditioning/ld_512/gan__conditioning_film__dec_emb_dim_None__phoneme_cls_3_31__seed_5/modelWeights_1600_best_auroc"
+                    # "/data/engs-pnpl/lina4471/willett2023/generative_models/experiments/gan_conditioning/ld_512/gan__conditioning_film__dec_emb_dim_None__phoneme_cls_3_31__seed_6/modelWeights_1360_best_auroc"
+                    # "/data/engs-pnpl/lina4471/willett2023/generative_models/experiments/gan_conditioning/ld_512/gan__conditioning_film__dec_emb_dim_None__phoneme_cls_3_31__seed_7/modelWeights_1200_best_auroc"
+                    "/data/engs-pnpl/lina4471/willett2023/generative_models/experiments/gan_conditioning/ld_512/gan__conditioning_film__dec_emb_dim_None__phoneme_cls_3_31__seed_8/modelWeights_1060_best_auroc"
+                    # "/data/engs-pnpl/lina4471/willett2023/generative_models/experiments/gan_conditioning/ld_512/gan__conditioning_film__dec_emb_dim_None__phoneme_cls_3_31__seed_9/modelWeights_740_best_auroc"
+
+                ]
+
+                args["generative_model_n_samples"] = n_samples_syn
+                args["generative_model_proportion"] = None
+                print(args["generative_model_weights_path"])
+
+            args["n_samples_real"] = n_samples_real
+            args["input_shape"] = (128, 8, 8)
+            args["lr"] = lr
+            args["batch_size"] = batch_size
+            args["class_weights"] = cls_weights
+            args["transform"] = "softsign"
+            args["patience"] = 25
+            args["gaussian_smoothing_kernel_size"] = 20
+            args["gaussian_smoothing_sigma"] = 2.0
+            args["phoneme_cls"] = [3, 31]
+            args["correctness_value"] = ["C"]
+
+            args["unconditional"] = True
+
+            if "generative_model_weights_path" in args.keys():
+                print("\nTrain phoeneme classifier using REAL and SYNTHETIC data!")
+            else:
+                print("\nTrain phoeneme classifier using only REAL data!")
+            output = main(args)
+
+            auroc, _ = compute_auroc_with_stderr(
+                y_true=output["test_y_true"], 
+                y_pred=output["test_y_pred"], 
+                n_iters=bootstrap_iters, 
+            )
+            seed_aurocs.append(auroc)
+
+        bootstrapped_aurocs = []
+        for _ in range(bootstrap_iters):
+            sample = np.random.choice(seed_aurocs, size=n_seeds, replace=True)
+            bootstrapped_aurocs.append(np.mean(sample))
+
+        _auroc = np.mean(seed_aurocs)
+        _sem = np.std(bootstrapped_aurocs) / np.sqrt(bootstrap_iters)
+
+        _aurocs.append(_auroc)
+        _sems.append(_sem)
+
+        all_seed_aurocs[model_name] = seed_aurocs
+
+
+    print(f"x_labels = {x_labels}")
+    colors = sns.color_palette("Set2", len(x_labels))[0]
+    hatches = []
+    sub_dir = "real_only"
+
+    for m in x_labels:
+        if "Syn" in m:
+            hatches.append('/')
+            sub_dir = "real_vs_augmented"
+        else:
+            hatches.append('')
+
+    print(f"sub_dir = {sub_dir}")
+
+    plot_dir = ROOT_DIR / "evaluation" / "experiments" / "data_aug_experiment" / "plots" / sub_dir 
+
+    now = datetime.now()
+    timestamp = now.strftime("%Y%m%d_%H%M%S")
+
+    plot_aurocs_with_error_bars(
+        aurocs=_aurocs, 
+        errs=_sems, 
+        x_labels=x_labels, 
+        out_file=plot_dir / f"{timestamp}_SEM_aurocs_with_err__seed_{n_seeds}.png",
+        xlabel="Training data",
+        title="AUROC performance",
+        colors=colors,
+        figsize=(int(2*len(combinations)), 5),
+        hatches=hatches
+    )
+
+    plot_aurocs_with_error_bars(
+        aurocs=_aurocs, 
+        errs=_sems, 
+        x_labels=x_labels, 
+        out_file=plot_dir / f"{timestamp}_SEM_aurocs_with_err__seed_{n_seeds}__with_annotations.png",
+        xlabel="Training data",
+        title="AUROC performance",
+        colors=colors,
+        figsize=(int(2*len(combinations)), 5),
+        add_annotations=True,
+        hatches=hatches
+    )
+
+    with open(plot_dir / f'{timestamp}_all_seed_aurocs.json', 'w') as json_file:
+        json.dump(all_seed_aurocs, json_file)
+
+
+

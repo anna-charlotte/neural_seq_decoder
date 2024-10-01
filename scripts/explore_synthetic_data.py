@@ -10,6 +10,7 @@ import numpy as np
 import seaborn as sns
 from typing import List, Union
 from pathlib import Path
+from datetime import datetime
 
 from torchvision import transforms
 import random
@@ -81,41 +82,6 @@ def plot_grid_comparison_of_ds_images(
 def plot_pixel_distributions(
     datasets: List[Union[PhonemeDataset, SyntheticPhonemeDataset]], 
     dataset_names: List[str],
-    out_file: Path,
-) -> None:
-    sns.set(style="whitegrid")   # Use seaborn for a nicer style
-    fig, axes = plt.subplots(len(datasets), 1, figsize=(8, 10), constrained_layout=True, sharey=True)
-    plt.subplots_adjust(left=0.2, right=0.9, top=0.9, bottom=0.1)
-
-    colors = sns.color_palette("Set2", len(datasets))  # Use a seaborn color palette
-
-    for i, dataset in enumerate(datasets):
-        pixel_values = torch.cat([sample[0].squeeze().view(-1) for sample in dataset])
-        pixel_values_np = pixel_values.numpy()
-
-        counts, bins, patches = axes[i].hist(pixel_values_np, bins=50, density=True, color=colors[i], alpha=0.7, edgecolor='black')
-
-        bin_width = bins[1] - bins[0]
-        percentages = (counts * bin_width) * 100
-
-        axes[i].clear()
-        axes[i].bar(bins[:-1], percentages, width=bin_width, color=colors[i], alpha=0.7, edgecolor='black', linewidth=0.5)
-
-        axes[i].set_xlim([-1, 1])
-        axes[i].set_ylim([0, max(percentages) * 1.1])
-
-        axes[i].set_title(f'Pixel Distribution for {dataset_names[i]}', fontsize=16, fontweight='bold')
-        axes[i].set_xlabel('Pixel Value', fontsize=14)
-        axes[i].set_ylabel('Percentage (%)', fontsize=14)
-
-    plt.tight_layout()
-    plt.savefig(out_file, dpi=300) 
-
-
-
-def plot_pixel_distributions_2(
-    datasets: List[Union[PhonemeDataset, SyntheticPhonemeDataset]], 
-    dataset_names: List[str],
     classes: List[int], 
     out_file: Path,
 ) -> None:
@@ -123,21 +89,27 @@ def plot_pixel_distributions_2(
     num_datasets = len(datasets)
     num_classes = len(classes)
     
-    fig, axes = plt.subplots(num_datasets, num_classes, figsize=(15, 5 * num_datasets), constrained_layout=True, sharey=True)
+    fig, axes = plt.subplots(num_datasets, num_classes, figsize=(11, 3 * num_datasets), constrained_layout=True, sharey=True)
     plt.subplots_adjust(left=0.2, right=0.9, top=0.9, bottom=0.1)
 
     colors = sns.color_palette("Set2", num_datasets)  # Use a seaborn color palette
+    hist_data = []
 
     for i, dataset in enumerate(datasets):
-        for j, cls in enumerate(classes):
-            # Filter the dataset for the current class
-            pixel_values = torch.cat([sample[0].squeeze().view(-1) for sample in dataset if sample[1] == cls])
+        for j, kls in enumerate(classes):
+            for sample in dataset:
+                img = sample[0].squeeze()[64:128, :].view(-1)
+                print(f"img.size() = {img.size()}")
+            
+            pixel_values = torch.cat([sample[0].squeeze()[64:128, :].view(-1) for sample in dataset if sample[1] == kls])
             pixel_values_np = pixel_values.numpy()
 
             counts, bins, patches = axes[i, j].hist(pixel_values_np, bins=50, density=True, color=colors[i], alpha=0.7, edgecolor='black')
 
             bin_width = bins[1] - bins[0]
             percentages = (counts * bin_width) * 100
+
+            hist_data.append((bins, percentages))
 
             axes[i, j].clear()
             axes[i, j].bar(bins[:-1], percentages, width=bin_width, color=colors[i], alpha=0.7, edgecolor='black', linewidth=0.5)
@@ -146,7 +118,7 @@ def plot_pixel_distributions_2(
             axes[i, j].set_ylim([0, max(percentages) * 1.1])
 
             if i == 0:
-                axes[i, j].set_title(f'Class {cls}', fontsize=16, fontweight='bold')
+                axes[i, j].set_title(f'Class {PHONE_DEF[kls-1]}', fontsize=16, fontweight='bold')
             axes[i, j].set_xlabel('Pixel Value', fontsize=14)
             if j == 0:
                 axes[i, j].set_ylabel(f'{dataset_names[i]}\nPercentage (%)', fontsize=14, fontweight='bold')
@@ -223,8 +195,10 @@ def main(args: dict) -> None:
     plot_grid_comparison_of_ds_images(datasets, dataset_names, phoneme_classes, out_file=file, pad=pad)
 
     # plot pixel distributions
-    file = ROOT_DIR / "plots" / f"synthetic_images_pixel_distributions_entire_dataset.png"
-    plot_pixel_distributions(datasets, dataset_names, out_file=file)
+    now = datetime.now()
+    timestamp = now.strftime("%Y%m%d_%H%M%S")
+    file = ROOT_DIR / "plots" / f"{timestamp}__synthetic_images_pixel_distributions_entire_dataset.png"
+    plot_pixel_distributions(datasets, dataset_names, classes=[3, 31], out_file=file)
 
 
 
@@ -242,8 +216,8 @@ if __name__ == "__main__":
     now = datetime.now()
     timestamp = now.strftime("%Y%m%d_%H%M%S")
 
-    args["vae_weights_path"] = f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_unconditional_20240809_044252/modelWeights_epoch_110"  # cls [3, 31]
-    args["gan_weights_path"] = f"/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/test__PhonemeImageGAN_20240819_110045__phoneme_cls_3_31/modelWeights_{1000}"
+    args["vae_weights_path"] = "/data/engs-pnpl/lina4471/willett2023/generative_models/experiments/vae_conditioning_cond_bn_True/ld_256_dhd_512/vae__conditioning_film__phoneme_cls_3_31__latent_dim_256__dec_emb_dim_None__dec_hidden_dim_512__seed_8/modelWeights_epoch_78"  # f"/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_unconditional_20240809_044252/modelWeights_epoch_110"  # cls [3, 31]
+    args["gan_weights_path"] = "/data/engs-pnpl/lina4471/willett2023/generative_models/experiments/gan_conditioning/ld_512/gan__conditioning_film__dec_emb_dim_None__phoneme_cls_3_31__seed_8/modelWeights_1060_best_auroc" # f"/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/test__PhonemeImageGAN_20240819_110045__phoneme_cls_3_31/modelWeights_{1000}"
     
     args["gaussian_smoothing_kernel_size"] = 20
     args["gaussian_smoothing_sigma"] = 2.0

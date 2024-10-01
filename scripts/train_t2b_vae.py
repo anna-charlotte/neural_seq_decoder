@@ -422,7 +422,7 @@ def main(args: dict) -> None:
     writer.close()
 
 
-def run_latent_dim_experiment(latent_dims: List[int], cond_bn: bool):
+def run_latent_dim_experiment(latent_dims: List[int], cond_bn: bool, dec_hidden_dim: int):
     args = {}
     args["train_set_path"] = ("/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl")
     args["val_set_path"] = ("/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_VAL_SPLIT.pkl")
@@ -446,7 +446,7 @@ def run_latent_dim_experiment(latent_dims: List[int], cond_bn: bool):
 
     args["input_shape"] = [4, 64, 32]
     args["dec_emb_dim"] = None
-    args["dec_hidden_dim"] = 256 
+    args["dec_hidden_dim"] = dec_hidden_dim 
 
     args["start_epoch"] = 0
     args["n_epochs"] = 300
@@ -454,21 +454,21 @@ def run_latent_dim_experiment(latent_dims: List[int], cond_bn: bool):
 
     args["transform"] = "softsign"
 
-    for seed in [4]:  # range(3, 10): # TODO: remove
+    for seed in range(10):
         args["seed"] = seed
         for latent_dim in latent_dims: 
     
             args["latent_dim"] = latent_dim
 
             args["output_dir"] = (
-                f"/data/engs-pnpl/lina4471/willett2023/generative_models/experiments/vae_latent_dim_cond_bn_{cond_bn}/vae__latent_dim_{latent_dim}__seed_{args['seed']}"
+                f"/data/engs-pnpl/lina4471/willett2023/generative_models/experiments/vae_latent_dim_cond_bn_{cond_bn}__dhd_{dec_hidden_dim}/vae__latent_dim_{latent_dim}__seed_{args['seed']}"
             )
 
             args["plot_dir"] = (
                 ROOT_DIR
                 / "evaluation"
                 / "experiments"
-                / f"vae_latent_dim_cond_bn_{cond_bn}"
+                / f"vae_latent_dim_cond_bn_{cond_bn}__dhd_{dec_hidden_dim}"
                 / f"vae__latent_dim_{latent_dim}__seed_{args['seed']}"
             )
 
@@ -495,66 +495,64 @@ def run_conditioning_experiment(latent_dim: int, dec_hidden_dim: int, cond_bn: b
 
     conditions = films + separates + concats
 
-    for seed in range(2, 10): # TODO: remove
+    for seed in [0, 1, 2]:
         for cond, n_film, emb_dim, phoneme_cls in conditions:
-            if seed > 2 or cond == "concat":
                 
-                args = {}
-                args["seed"] = seed
-                                                     
-                # args = {}
-                args["train_set_path"] = (
-                    "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
-                )
-                args["val_set_path"] = (
-                    "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_VAL_SPLIT.pkl"
-                )
-                args["test_set_path"] = (
-                    "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_TEST_SPLIT.pkl"
-                )
+            args = {}
+            args["seed"] = seed
+                                                    
+            args["train_set_path"] = (
+                "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
+            )
+            args["val_set_path"] = (
+                "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_VAL_SPLIT.pkl"
+            )
+            args["test_set_path"] = (
+                "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_TEST_SPLIT.pkl"
+            )
 
-                args["load_from_checkpoint"] = False
+            args["load_from_checkpoint"] = False
 
-                args["device"] = "cuda"
-                args["batch_size"] = 64
-                args["input_shape"] = [4, 64, 32]
-                args["latent_dim"] = latent_dim
+            args["device"] = "cuda"
+            args["batch_size"] = 64
+            args["input_shape"] = [4, 64, 32]
+            args["latent_dim"] = latent_dim
 
-                args["loss"] = "geco"
-                args["loss_reduction"] = "mean"
-                args["geco_goal"] = 0.05
-                args["geco_beta_init"] = 1e-3
-                args["geco_step_size"] = 1e-2
-                args["geco_beta_max"] = 1e-1
+            args["loss"] = "geco"
+            args["loss_reduction"] = "mean"
+            args["geco_goal"] = 0.05
+            args["geco_beta_init"] = 1e-3
+            args["geco_step_size"] = 1e-2
+            args["geco_beta_max"] = 1e-1
 
-                args["phoneme_cls"] = phoneme_cls
-                args["conditioning"] = cond
-                args["cond_bn"] = cond_bn
-                args["n_layers_film"] = n_film
-                
-                args["dec_hidden_dim"] = dec_hidden_dim
-                args["dec_emb_dim"] = emb_dim
+            args["phoneme_cls"] = phoneme_cls
+            args["conditioning"] = cond
+            args["cond_bn"] = cond_bn
+            args["n_layers_film"] = n_film
+            
+            args["dec_hidden_dim"] = dec_hidden_dim
+            args["dec_emb_dim"] = emb_dim
 
-                args["start_epoch"] = 0
-                args["n_epochs"] = 300
-                args["lr"] = 1e-3
+            args["start_epoch"] = 0
+            args["n_epochs"] = 300
+            args["lr"] = 1e-3
 
-                args["transform"] = "softsign"
+            args["transform"] = "softsign"
 
-                args["output_dir"] = (
-                    f"/data/engs-pnpl/lina4471/willett2023/generative_models/experiments/vae_conditioning_cond_bn_{cond_bn}/ld_{latent_dim}_dhd_{dec_hidden_dim}/vae__conditioning_{cond}__phoneme_cls_{'_'.join(map(str, phoneme_cls))}__latent_dim_{args['latent_dim']}__dec_emb_dim_{args['dec_emb_dim']}__dec_hidden_dim_{args['dec_hidden_dim']}__seed_{seed}"
-                )
+            args["output_dir"] = (
+                f"/data/engs-pnpl/lina4471/willett2023/generative_models/experiments/vae_conditioning_cond_bn_{cond_bn}/ld_{latent_dim}_dhd_{dec_hidden_dim}/vae__conditioning_{cond}__phoneme_cls_{'_'.join(map(str, phoneme_cls))}__latent_dim_{args['latent_dim']}__dec_emb_dim_{args['dec_emb_dim']}__dec_hidden_dim_{args['dec_hidden_dim']}__seed_{seed}"
+            )
 
-                args["plot_dir"] = (
-                    ROOT_DIR
-                    / "evaluation"
-                    / "experiments"
-                    / f"vae_conditioning_cond_bn_{cond_bn}"
-                    / f"ld_{latent_dim}_dhd_{dec_hidden_dim}"
-                    / f"vae__conditioning_{cond}__phoneme_cls_{'_'.join(map(str, phoneme_cls))}__latent_dim_{args['latent_dim']}__dec_emb_dim_{args['dec_emb_dim']}__dec_hidden_dim_{args['dec_hidden_dim']}__seed_{seed}"
-                )
+            args["plot_dir"] = (
+                ROOT_DIR
+                / "evaluation"
+                / "experiments"
+                / f"vae_conditioning_cond_bn_{cond_bn}"
+                / f"ld_{latent_dim}_dhd_{dec_hidden_dim}"
+                / f"vae__conditioning_{cond}__phoneme_cls_{'_'.join(map(str, phoneme_cls))}__latent_dim_{args['latent_dim']}__dec_emb_dim_{args['dec_emb_dim']}__dec_hidden_dim_{args['dec_hidden_dim']}__seed_{seed}"
+            )
 
-                main(args)
+            main(args)
 
 
 def run_elbo_vs_geco_experiment(latent_dim: int, cond_bn: bool):
@@ -628,19 +626,20 @@ def run_elbo_vs_geco_experiment(latent_dim: int, cond_bn: bool):
 if __name__ == "__main__":
     print("Starting VAE training ...")
 
-    latent_dim_experiment = True
-    conditioning_experiment = False
+    latent_dim_experiment = False
+    conditioning_experiment = True
     elbo_vs_geco_experiment = False
 
     if latent_dim_experiment:
         run_latent_dim_experiment(
-            latent_dims=[256, 512, 1024],
+            latent_dims=[64, 128, 512],  
             cond_bn=True,
+            dec_hidden_dim=512,
         )
 
     if conditioning_experiment:
         for lat_dim in [512, ]:
-            for hid_dim in [512,]:  
+            for hid_dim in [256,]:  
                 run_conditioning_experiment(
                     latent_dim=lat_dim, 
                     dec_hidden_dim=hid_dim, 

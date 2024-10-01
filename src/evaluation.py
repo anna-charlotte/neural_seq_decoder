@@ -39,10 +39,10 @@ def compute_correlation_matrix(data: np.ndarray) -> np.ndarray:
     return corr_matrix
 
 
-def compute_cross_correlation(arr1: np.ndarray, arr2: np.ndarray) -> np.ndarray:
-    assert arr1.dim() == 2, f"Array is of shape {arr1.shape}, should be 2-dim."
-    assert arr1.size() == arr2.size(), f"Given arrays are not of same shape: {arr1.shape} != {arr2.shape}"
-    cross_corr = correlate2d(arr1, arr2, mode="full")
+def compute_cross_correlation(arr1: np.ndarray, arr2: np.ndarray, mode: str = "full") -> np.ndarray:
+    assert arr1.ndim == 2, f"Array is of shape {arr1.shape}, should be 2-dim."
+    assert arr1.shape == arr2.shape, f"Given arrays are not of same shape: {arr1.shape} != {arr2.shape}"
+    cross_corr = correlate2d(arr1, arr2, mode=mode)
     return cross_corr
 
 
@@ -78,17 +78,14 @@ def compute_auroc_with_stderr(y_true: np.ndarray, y_pred: np.ndarray, n_iters: i
     # scipy.stats.ttest_ind(x, y, equal_var=False, alternative='two-sided')
 
 
-def compute_auroc_with_confidence_interval(y_true: np.ndarray, y_pred: np.ndarray, n_resamples: int = 1000, confidence_level: float = 0.95):
+def compute_auroc_with_confidence_interval(y_true: np.ndarray, y_pred: np.ndarray, n_iters: int = 1000, confidence_level: float = 0.95):
     # Define a function to compute AUROC
     def _auroc(y_true_resampled, y_pred_resampled):
         a = roc_auc_score(y_true_resampled, y_pred_resampled)
         return a
     
-    print(f"y_true.shape = {y_true.shape}")
-    print(f"y_pred.shape = {y_pred.shape}")
-    
     # Perform bootstrap resampling
-    res = bootstrap((y_true, y_pred), _auroc, n_resamples=n_resamples, confidence_level=confidence_level, method='basic')
+    res = bootstrap((y_true, y_pred), _auroc, n_resamples=n_iters, confidence_level=confidence_level, method='basic')
     
     mean_auroc = np.mean(res.bootstrap_distribution)
     ci_low, ci_high = res.confidence_interval.low, res.confidence_interval.high
@@ -108,6 +105,15 @@ def compute_man_whitney(y_true: np.ndarray, y_pred_1: np.ndarray, y_pred_2: np.n
         y_true_bootstrap, y_pred_2_bootstrap = resample(y_true, y_pred_2)
         auroc_2 = roc_auc_score(y_true_bootstrap, y_pred_2_bootstrap)
         auroc_scores_2.append(auroc_2)
+
+    stat, p_value = mannwhitneyu(auroc_scores_1, auroc_scores_2, alternative='two-sided')
+
+    return stat, p_value
+    # scipy.stats.ttest_ind(x, y, equal_var=False, alternative='two-sided')
+
+
+
+def compute_man_whitney_from_aurocs(auroc_scores_1: np.ndarray, auroc_scores_2: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
 
     stat, p_value = mannwhitneyu(auroc_scores_1, auroc_scores_2, alternative='two-sided')
 

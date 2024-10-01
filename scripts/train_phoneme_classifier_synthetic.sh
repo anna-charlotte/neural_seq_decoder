@@ -4,8 +4,8 @@
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks-per-node=4
 #SBATCH --mem-per-cpu=8G
-# #SBATCH --time=12:00:00
-#SBATCH --job-name=evallatExp
+#SBATCH --time=24:00:00
+#SBATCH --job-name=fExp3-10_000
 #SBATCH --partition=long
 #SBATCH --output=/data/engs-pnpl/lina4471/repos/neural_seq_decoder/out/cond-None_looking_for_best.%j.out
 #SBATCH --mail-type=BEGIN,END

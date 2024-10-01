@@ -3,9 +3,10 @@ import pickle
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from typing import List
+from typing import List, Dict
 
 import matplotlib.pyplot as plt
+from matplotlib_venn import venn3
 import numpy as np
 import seaborn as sns
 import torch
@@ -156,6 +157,7 @@ def main(args: dict) -> None:
             gen_models=gen_models,
             n_samples_train_syn=args["generative_model_n_samples_train"],
             n_samples_val=args["generative_model_n_samples_val"],
+            n_samples_test=args["generative_model_n_samples_test"],
             val_dl_real=val_dl_real, 
             test_dl_real=test_dl_real,
             phoneme_classes=phoneme_classes,
@@ -218,7 +220,7 @@ def main(args: dict) -> None:
         output = model.train_model(
             train_dl=train_dl,
             val_dls=[val_dl_real],
-            test_dl=test_dl_real,
+            test_dl=[test_dl_real],
             n_classes=n_classes,
             optimizer=optimizer,
             criterion=criterion,
@@ -237,6 +239,7 @@ def evaluate_vae_latent_dim_experiment(
     pattern_latent_dims: list, 
     pattern_seeds: list,
     plot_dir: Path,
+    syn_n_samples: int, 
     n_seeds: int = 5, 
     bootstrap_iters: int = 1_000,
     metric: str = "auroc",
@@ -257,20 +260,15 @@ def evaluate_vae_latent_dim_experiment(
     args["lr"] = 1e-4
     args["batch_size"] = 64
     args["transform"] = "softsign"
-    args["patience"] = 20
+    args["patience"] = 15
     args["phoneme_cls"] = [3, 31]
     args["correctness_value"] = ["C"]
 
-    # aurocs = []
-    # errs = []
     _aurocs = []
-    # _stds = []
     _sems = []
     x_labels = []
 
     for latent_dim in pattern_latent_dims:
-        # all_y_true = []
-        # all_y_pred = []
         seed_aurocs = []
 
         for pattern_seed in pattern_seeds:
@@ -281,31 +279,49 @@ def evaluate_vae_latent_dim_experiment(
             weights_file = matching_files[0]
             print(f"weights_file = {weights_file}")
 
+            # creat out dir
+            out_dir = sub_dir / "phoneme_classifier"
+            out_dir.mkdir(exist_ok=True)
+
             for seed in range(n_seeds):
                 args["seed"] = seed
                 args["output_dir"] = (
                     f"/data/engs-pnpl/lina4471/willett2023/phoneme_classifier/__PhonemeClassifier_bs_64__lr_1e-4__train_on_only_synthetic__latent_dimexp"
                 )
-                
                 args["generative_model_weights_path"] = str(weights_file)
-                args["generative_model_n_samples_train"] = 10_000
-                args["generative_model_n_samples_val"] = 2_000
-                args["generative_model_n_samples_test"] = 2_000
+                args["generative_model_n_samples_train"] = syn_n_samples
+                args["generative_model_n_samples_val"] = 5_000
+                args["generative_model_n_samples_test"] = 5_000  # add testing on synthetic data
 
                 output = main(args)
                 print(f"output['test_acc'] = {output['test_acc']}")
                 print(f"output['test_auroc_macro'] = {output['test_auroc_macro']}")
                 print(f"output['test_auroc_micro'] = {output['test_auroc_micro']}")
                 
-                # all_y_true.append(output["test_y_true"])
-                # all_y_pred.append(output["test_y_pred"])
-                
                 auroc, _ = compute_auroc_with_stderr(
                     y_true=output["test_y_true"], 
                     y_pred=output["test_y_pred"], 
                     n_iters=bootstrap_iters, 
                 )
+                print(f"output['test_y_true'].shape = {output['test_y_true'].shape}")
+                print(f"output['test_y_pred'].shape = {output['test_y_pred'].shape}")
                 seed_aurocs.append(auroc)
+
+                # make subdir for this random seed and n samples
+                sub_out_dir = out_dir / f"phoneme_classifier__syn_n_samples_{syn_n_samples}__seed_{seed}"
+                sub_out_dir.mkdir(exist_ok=True)
+                data = {
+                    "y_true": output["test_y_true"].tolist(),
+                    "y_pred": output["test_y_pred"].tolist(),
+                    "y_true_syn": output["test_y_true_syn"].tolist(),
+                    "y_pred_syn": output["test_y_pred_syn"].tolist(),
+                    "seed": seed,
+                    "generative_model_n_samples_train": syn_n_samples
+                }
+                with open(sub_out_dir / "ouput.json", "w") as json_file:
+                    json.dump(data, json_file)
+                    print(f"Saved output to {sub_out_dir / 'ouput.json'}")
+
         
         bootstrapped_aurocs = []
         for _ in range(bootstrap_iters):
@@ -313,60 +329,37 @@ def evaluate_vae_latent_dim_experiment(
             bootstrapped_aurocs.append(np.mean(sample))
 
         _auroc = np.mean(seed_aurocs)
-        # _std = np.std(bootstrapped_aurocs)
         _sem = np.std(bootstrapped_aurocs) / np.sqrt(bootstrap_iters)
 
         _aurocs.append(_auroc)
-        # _stds.append(_std)
         _sems.append(_sem)
 
-        # y_true_combined = np.concatenate(all_y_true)
-        # y_pred_combined = np.concatenate(all_y_pred)    
-
-        # auroc, err = compute_auroc_with_stderr(
-        #     y_true=y_true_combined, 
-        #     y_pred=y_pred_combined, 
-        #     n_iters=10
-        # )
-
-        # aurocs.append(auroc)
-        # errs.append(err)
         x_labels.append(latent_dim)
 
-    colors = sns.color_palette("Set2", len(x_labels))[2]
+        colors = sns.color_palette("Set2", 3)[2]
 
-    now = datetime.now()
-    timestamp = now.strftime("%Y%m%d_%H%M%S")
+        now = datetime.now()
+        timestamp = now.strftime("%Y%m%d_%H%M%S")
 
-    # plot_aurocs_with_error_bars(
-    #     aurocs=aurocs, 
-    #     errs=errs, 
-    #     x_labels=x_labels, 
-    #     out_file=plot_dir / f"{timestamp}_aurocs_with_err__seed_{n_seeds}_2.png",
-    #     xlabel="latent dim",
-    #     title="AUROC performance of VAEs with varying latent dimensions",
-    #     colors=colors,
-    # )
-
-    # plot_aurocs_with_error_bars(
-    #     aurocs=_aurocs, 
-    #     errs=_stds, 
-    #     x_labels=x_labels, 
-    #     out_file=plot_dir / f"{timestamp}_STD_aurocs_with_err__seed_{n_seeds}_2.png",
-    #     xlabel="latent dim",
-    #     title="AUROC performance of VAEs with varying latent dimensions",
-    #     colors=colors,
-    # )
-
-    plot_aurocs_with_error_bars(
-        aurocs=_aurocs, 
-        errs=_sems, 
-        x_labels=x_labels, 
-        out_file=plot_dir / f"{timestamp}_SEM_aurocs_with_err__seed_{n_seeds}_2.png",
-        xlabel="latent dim",
-        title="AUROC performance of VAEs with varying latent dimensions",
-        colors=colors,
-    )
+        plot_aurocs_with_error_bars(
+            aurocs=_aurocs, 
+            errs=_sems, 
+            x_labels=x_labels, 
+            out_file=plot_dir / f"{timestamp}_SEM_aurocs_with_err__seed_{n_seeds}__syn_n_samples_{syn_n_samples}.png",
+            xlabel="latent dim",
+            title="AUROC performance of VAEs with varying latent dimensions",
+            colors=colors,
+        )
+        plot_aurocs_with_error_bars(
+            aurocs=_aurocs, 
+            errs=_sems, 
+            x_labels=x_labels, 
+            out_file=plot_dir / f"{timestamp}_SEM_aurocs_with_err__seed_{n_seeds}_with_annotations__syn_n_samples_{syn_n_samples}.png",
+            xlabel="latent dim",
+            title="AUROC performance of VAEs with varying latent dimensions",
+            colors=colors,
+            add_annotations=True
+        )
 
 
 def evaluate_vae_conditioning_experiment(
@@ -375,6 +368,7 @@ def evaluate_vae_conditioning_experiment(
     dec_hidden_dim: int, 
     pattern_seeds: list,
     plot_dir: Path,
+    syn_n_samples: int,
     n_seeds: int = 10,
     bootstrap_iters: int = 1_000,
 ) -> None:
@@ -392,14 +386,12 @@ def evaluate_vae_conditioning_experiment(
     args["lr"] = 1e-4
     args["batch_size"] = 64
     args["transform"] = "softsign"
-    args["patience"] = 20
+    args["patience"] = 15
     args["phoneme_cls"] = [3, 31]
     args["correctness_value"] = ["C"]
 
-    # aurocs = []
-    # errs = []
     _aurocs = []
-    # _stds = []
+    all_seed_aurocs = []
     _sems = []
     x_labels = []
 
@@ -411,33 +403,38 @@ def evaluate_vae_conditioning_experiment(
 
         "FiLM": f"vae__conditioning_film__phoneme_cls_3_31__latent_dim_{latent_dim}__dec_emb_dim_None__dec_hidden_dim_{dec_hidden_dim}__seed_{{pattern_seed}}",
 
-        "Concat\n(emb_dim=8)": f"vae__conditioning_concat__phoneme_cls_3_31__latent_dim_{latent_dim}__dec_emb_dim_8__dec_hidden_dim_{dec_hidden_dim}__seed_{{pattern_seed}}",
-        "Concat\n(emb_dim=16)": f"vae__conditioning_concat__phoneme_cls_3_31__latent_dim_{latent_dim}__dec_emb_dim_16__dec_hidden_dim_{dec_hidden_dim}__seed_{{pattern_seed}}",
-        "Concat\n(emb_dim=32)": f"vae__conditioning_concat__phoneme_cls_3_31__latent_dim_{latent_dim}__dec_emb_dim_32__dec_hidden_dim_{dec_hidden_dim}__seed_{{pattern_seed}}",
-        "Concat\n(emb_dim=64)": f"vae__conditioning_concat__phoneme_cls_3_31__latent_dim_{latent_dim}__dec_emb_dim_64__dec_hidden_dim_{dec_hidden_dim}__seed_{{pattern_seed}}",
-        "Concat\n(emb_dim=128)": f"vae__conditioning_concat__phoneme_cls_3_31__latent_dim_{latent_dim}__dec_emb_dim_128__dec_hidden_dim_{dec_hidden_dim}__seed_{{pattern_seed}}",
+        "Concat 2": f"vae__conditioning_concat__phoneme_cls_3_31__latent_dim_{latent_dim}__dec_emb_dim_2__dec_hidden_dim_{dec_hidden_dim}__seed_{{pattern_seed}}",
+        "Concat 4": f"vae__conditioning_concat__phoneme_cls_3_31__latent_dim_{latent_dim}__dec_emb_dim_4__dec_hidden_dim_{dec_hidden_dim}__seed_{{pattern_seed}}",
+        "Concat 8": f"vae__conditioning_concat__phoneme_cls_3_31__latent_dim_{latent_dim}__dec_emb_dim_8__dec_hidden_dim_{dec_hidden_dim}__seed_{{pattern_seed}}",
+        "Concat 16": f"vae__conditioning_concat__phoneme_cls_3_31__latent_dim_{latent_dim}__dec_emb_dim_16__dec_hidden_dim_{dec_hidden_dim}__seed_{{pattern_seed}}",
+        "Concat 32": f"vae__conditioning_concat__phoneme_cls_3_31__latent_dim_{latent_dim}__dec_emb_dim_32__dec_hidden_dim_{dec_hidden_dim}__seed_{{pattern_seed}}",
+        "Concat 64": f"vae__conditioning_concat__phoneme_cls_3_31__latent_dim_{latent_dim}__dec_emb_dim_64__dec_hidden_dim_{dec_hidden_dim}__seed_{{pattern_seed}}",
+        "Concat 128": f"vae__conditioning_concat__phoneme_cls_3_31__latent_dim_{latent_dim}__dec_emb_dim_128__dec_hidden_dim_{dec_hidden_dim}__seed_{{pattern_seed}}",
     }
     for model_name, weight_dir in name2dir.items():
-        # all_y_true = []
-        # all_y_pred = []
         seed_aurocs = []
 
         for pattern_seed in pattern_seeds:
             if isinstance(weight_dir, str):
-                matching_files = list((model_dir / weight_dir.format(pattern_seed=pattern_seed)).glob("modelWeights*"))
+                sub_dir = model_dir / weight_dir.format(pattern_seed=pattern_seed)
+                matching_files = list(sub_dir.glob("modelWeights*"))
                 assert len(matching_files) == 1, f"There are multiple modelWeights files in the given directory, expected one: {matching_files}"
                 weights_file = str(matching_files[0])
 
+                # creat out dir
+                out_dir = sub_dir / "phoneme_classifier"
+                out_dir.mkdir(exist_ok=True)
+
             elif isinstance(weight_dir, list):
                 weights_file = []
-                for dir in weight_dir:
-                    matching_files = list((model_dir / dir.format(pattern_seed=pattern_seed)).glob("modelWeights*"))
+                for sub_dir in weight_dir:
+                    matching_files = list((model_dir / sub_dir.format(pattern_seed=pattern_seed)).glob("modelWeights*"))
                     assert len(matching_files) == 1, f"There are {len(matching_files)} modelWeights files in the given directory, expected one: {matching_files}"
                     weights_file.append(str(matching_files[0]))
 
-            print(f"weights_file = {weights_file}")
-
-
+                # creat out dir
+                out_dir = model_dir / weight_dir[0].format(pattern_seed=pattern_seed) / "phoneme_classifier"
+                out_dir.mkdir(exist_ok=True)
 
             for seed in range(n_seeds):
                 args["seed"] = seed
@@ -446,17 +443,14 @@ def evaluate_vae_conditioning_experiment(
                 )
                 
                 args["generative_model_weights_path"] = weights_file
-                args["generative_model_n_samples_train"] = 10_000
-                args["generative_model_n_samples_val"] = 2_000
-                args["generative_model_n_samples_test"] = 2_000
+                args["generative_model_n_samples_train"] = syn_n_samples
+                args["generative_model_n_samples_val"] = 5_000
+                args["generative_model_n_samples_test"] = 5_000
 
                 output = main(args)
                 print(f"output['test_acc'] = {output['test_acc']}")
                 print(f"output['test_auroc_macro'] = {output['test_auroc_macro']}")
                 print(f"output['test_auroc_micro'] = {output['test_auroc_micro']}")
-                
-                # all_y_true.append(output["test_y_true"])
-                # all_y_pred.append(output["test_y_pred"])
                 
                 auroc, _ = compute_auroc_with_stderr(
                     y_true=output["test_y_true"], 
@@ -464,6 +458,24 @@ def evaluate_vae_conditioning_experiment(
                     n_iters=bootstrap_iters, 
                 )
                 seed_aurocs.append(auroc)
+
+                # make subdir for this random seed and n samples
+                sub_out_dir = out_dir / f"phoneme_classifier__syn_n_samples_{syn_n_samples}__seed_{seed}"
+                sub_out_dir.mkdir(exist_ok=True)
+                data = {
+                    "y_true": output["test_y_true"].tolist(),
+                    "y_pred": output["test_y_pred"].tolist(),
+                    "y_true_syn": output["test_y_true_syn"].tolist(),
+                    "y_pred_syn": output["test_y_pred_syn"].tolist(),
+                    "seed": seed,
+                    "generative_model_n_samples_train": syn_n_samples
+                }
+                with open(sub_out_dir / "ouput.json", "w") as json_file:
+                    json.dump(data, json_file)
+                    print(f"Saved output to {sub_out_dir / 'ouput.json'}")
+
+
+        all_seed_aurocs.append(seed_aurocs)
         
         bootstrapped_aurocs = []
         for _ in range(bootstrap_iters):
@@ -471,63 +483,49 @@ def evaluate_vae_conditioning_experiment(
             bootstrapped_aurocs.append(np.mean(sample))
 
         _auroc = np.mean(seed_aurocs)
-        # _std = np.std(bootstrapped_aurocs)
         _sem = np.std(bootstrapped_aurocs) / np.sqrt(bootstrap_iters)
 
         _aurocs.append(_auroc)
-        # _stds.append(_std)
         _sems.append(_sem)
 
-        # y_true_combined = np.concatenate(all_y_true)
-        # y_pred_combined = np.concatenate(all_y_pred)    
-
-        # auroc, err = compute_auroc_with_stderr(
-        #     y_true=y_true_combined, 
-        #     y_pred=y_pred_combined, 
-        #     n_iters=bootstrap_iters  # TODO, back to 10?
-        # )
-
-        # aurocs.append(auroc)
-        # errs.append(err)
         x_labels.append(model_name)
 
-    colors = sns.color_palette("Set2", len(x_labels))[2]
 
-    now = datetime.now()
-    timestamp = now.strftime("%Y%m%d_%H%M%S")
+def plot_venn3(label2values: Dict[str, np.ndarray], out_file: Path, title: str = "Venn Diagram") -> None:
+    assert len(label2values) == 3
 
-    # plot_aurocs_with_error_bars(
-    #     aurocs=aurocs, 
-    #     errs=errs, 
-    #     x_labels=x_labels, 
-    #     out_file=plot_dir / f"{timestamp}_aurocs_with_err__seed_{n_seeds}__lat_dim_{latent_dim}__dec_hidden_dim_{dec_hidden_dim}__dir_2.png",
-    #     xlabel="Conditiong mechanism",
-    #     title="AUROC performance of VAEs with varying conditioning mechanisms",
-    #     colors=colors,
-    # )
+    indices = [set(v) for v in label2values.values()]
+    labels = list(label2values.keys())
+    indices = [indices[i] for i in [1, 0, 2]]
+    labels = [labels[i] for i in [1, 0, 2]]
 
-    # plot_aurocs_with_error_bars(
-    #     aurocs=_aurocs, 
-    #     errs=_stds, 
-    #     x_labels=x_labels, 
-    #     out_file=plot_dir / f"{timestamp}_STD_aurocs_with_err__seed_{n_seeds}__lat_dim_{latent_dim}__dec_hidden_dim_{dec_hidden_dim}__dir_2.png",
-    #     xlabel="Conditiong mechanism",
-    #     title="AUROC performance of VAEs with varying conditioning mechanisms",
-    #     colors=colors,
-    # )
+    venn3(indices, set_labels=labels)
 
-    plot_aurocs_with_error_bars(
-        aurocs=_aurocs, 
-        errs=_sems, 
-        x_labels=x_labels, 
-        out_file=plot_dir / f"{timestamp}_SEM_aurocs_with_err__seed_{n_seeds}__lat_dim_{latent_dim}__dec_hidden_dim_{dec_hidden_dim}__dir_2.png",
-        xlabel="Conditiong mechanism",
-        title="AUROC performance of VAEs with varying conditioning mechanisms",
-        colors=colors,
-    )
+    plt.title(title)
+    plt.savefig(out_file)
+    plt.close()
 
 
-def evaluate_final_experiment(vae_weights_file: Path, gan_weights_file: Path, n_gen_samples: int, n_seeds: int = 10, bootstrap_iters: int = 10):
+def get_miclassified_indices(y_true: np.ndarray, y_pred: np.ndarray, threshold: float = 0.5) -> np.ndarray:
+    y_pred_binary = (y_pred >= threshold).astype(int)
+    y_pred_binary = y_pred_binary.flatten()
+    assert y_pred_binary.shape == y_true.shape
+    
+    misclassified_indices = np.where(y_true != y_pred_binary)[0]    
+    return misclassified_indices
+
+
+def evaluate_final_experiment(
+    vae_dir: Path, 
+    vae_pattern: str,
+    gan_dir: Path, 
+    gan_pattern: str, 
+    pattern_seeds: list, 
+    syn_n_samples: int, 
+    n_seeds: int = 10, 
+    bootstrap_iters: int = 10,
+    prefix=""
+):
     
     args = {}
     args["device"] = "cuda" if torch.cuda.is_available() else "cpu"
@@ -535,132 +533,278 @@ def evaluate_final_experiment(vae_weights_file: Path, gan_weights_file: Path, n_
     # args["train_set_path"] = str(data_dir / "rnn_train_set_with_logits.pkl")
     args["val_set_path"] = str(data_dir / "rnn_test_set_with_logits_VAL_SPLIT.pkl")
     args["test_set_path"] = str(data_dir / "rnn_test_set_with_logits_TEST_SPLIT.pkl")
-    args["n_epochs"] = 100
+    args["n_epochs"] = 100 
 
     args["input_shape"] = (128, 8, 8)
     args["lr"] = 1e-4
     args["batch_size"] = 64
     args["transform"] = "softsign"
-    args["patience"] = 20
+    args["patience"] = 15
     args["phoneme_cls"] = [3, 31]
     args["correctness_value"] = ["C"]
 
-    # aurocs = []
-    # errs = []
-    _aurocs = []
-    # _stds = []
-    _sems = []
+    aurocs = []
+    sems = []
+    syn_aurocs = []
+    syn_sems = []
+    all_seed_aurocs = []
+    all_test_trues = []
+   
     x_labels = []
     
-    for weights_file, model_name in zip([None, gan_weights_file, vae_weights_file], ["Real data", "GAN data", "VAE data"]):
+    model_names = ["Real data", "GAN data", "VAE data"]
+    thresholds = [0.4, 0.5, 0.6,]
+    label2miscls = {t: {m: [] for m in model_names} for t in thresholds}
 
-        if isinstance(weights_file, str):
-            weights_file = str(weights_file)
-        elif isinstance(weights_file, list):
-            weights_file = [str(f) for f in weights_file]
-        
-        args["generative_model_weights_path"] = weights_file
-        args["generative_model_n_samples_train"] = n_gen_samples
-        args["generative_model_n_samples_val"] = 2_000
-        args["generative_model_n_samples_test"] = 2_000
-
-        if weights_file is None:
-            args["train_set_path"] = str(data_dir / "rnn_train_set_with_logits.pkl")
-            args["class_weights"] = "sqrt"
-            del args["generative_model_weights_path"]
-            del args["generative_model_n_samples_train"]
-            del args["generative_model_n_samples_val"]
-            del args["generative_model_n_samples_test"]
-
-        # all_y_true = []
-        # all_y_pred = []
+    for model_dir, model_name in zip([None, gan_dir, vae_dir], model_names):
+        print(f"\nmodel_name = {model_name}")
         seed_aurocs = []
+        syn_seed_aurocs = []
+        model_seeds = [None] if model_dir is None else pattern_seeds
 
-        for seed in range(n_seeds):
-            args["seed"] = seed
-            args["output_dir"] = (
-                f"/data/engs-pnpl/lina4471/willett2023/phoneme_classifier/__PhonemeClassifier_bs_64__lr_1e-4__train_on_only_synthetic__latent_dimexp"
-            )
+        for i, p_seed in enumerate(model_seeds):
+            if model_dir is not None:
+                if "GAN" in model_name:
+                    sub_dir = model_dir / gan_pattern.format(seed=p_seed)
+                elif "VAE" in model_name:
+                    sub_dir = model_dir / vae_pattern.format(seed=p_seed)
 
-            output = main(args)
-            print(f"output['test_acc'] = {output['test_acc']}")
-            print(f"output['test_auroc_macro'] = {output['test_auroc_macro']}")
-            print(f"output['test_auroc_micro'] = {output['test_auroc_micro']}")
+                weights_file = list(sub_dir.glob("modelWeights_*_best_auroc"))
+                if len(weights_file) == 0:
+                    weights_file = list(sub_dir.glob("modelWeights_*"))
+                assert len(weights_file) == 1, f"weights_file = {weights_file}"
+                weights_file = weights_file[0]
+                
+
+                if isinstance(weights_file, str):
+                    weights_file = str(weights_file)
+                elif isinstance(weights_file, list):
+                    weights_file = [str(f) for f in weights_file]
+                
+                args["generative_model_weights_path"] = weights_file
+                args["generative_model_n_samples_train"] = syn_n_samples
+                args["generative_model_n_samples_val"] = 5_000
+                args["generative_model_n_samples_test"] = 5_000
+
+                # creat out dir
+                out_dir = sub_dir / "phoneme_classifier"
+                out_dir.mkdir(exist_ok=True)
+
+            elif model_dir is None:
+                args["train_set_path"] = str(data_dir / "rnn_train_set_with_logits.pkl")
+                args["class_weights"] = "sqrt"
+                args.pop("generative_model_weights_path", None)
+                args.pop("generative_model_n_samples_train", None)
+                args.pop("generative_model_n_samples_val", None)
+                args.pop("generative_model_n_samples_test", None)
+
+                # creat out dir
+                out_dir = Path("/data/engs-pnpl/lina4471/willett2023/generative_models/experiments") / "classifier_trained_on_real" / "phoneme_classifier"
+                out_dir.mkdir(exist_ok=True)
+
+            for j, seed in enumerate(range(n_seeds)):
+                args["seed"] = seed
+                args["output_dir"] = (
+                    f"/data/engs-pnpl/lina4471/willett2023/phoneme_classifier/__PhonemeClassifier_bs_64__lr_1e-4__train_on_only_synthetic__latent_dimexp"
+                )
+
+                output = main(args)
+                print(f"output['test_acc'] = {output['test_acc']}")
+                print(f"output['test_auroc_macro'] = {output['test_auroc_macro']}")
+                print(f"output['test_auroc_micro'] = {output['test_auroc_micro']}")
+                
+                auroc, _ = compute_auroc_with_stderr(
+                    y_true=output["test_y_true"], 
+                    y_pred=output["test_y_pred"], 
+                    n_iters=bootstrap_iters, 
+                )
+                seed_aurocs.append(auroc)
+
+                if model_dir is not None:
+                    print(f"output.keys() = {output.keys()}")
+                    syn_auroc, _ = compute_auroc_with_stderr(
+                        y_true=output["test_y_true_syn"], 
+                        y_pred=output["test_y_pred_syn"], 
+                        n_iters=bootstrap_iters, 
+                    )
+                    syn_seed_aurocs.append(syn_auroc)
+
+                if i == 0 and j == 0:
+                    for t in thresholds:
+                        miscls_indices = get_miclassified_indices(
+                            y_true=output["test_y_true"],  
+                            y_pred=output["test_y_pred"],
+                            threshold=t,
+                        )
+                        label2miscls[t][model_name] = miscls_indices
+                        all_test_trues.append(output["test_y_true"])
+
+                # make subdir for this random seed and n samples
+                sub_out_dir = out_dir / f"phoneme_classifier__syn_n_samples_{syn_n_samples}__seed_{seed}"
+                sub_out_dir.mkdir(exist_ok=True)
+                if model_dir is None:
+                    data = {
+                        "y_true": output["test_y_true"].tolist(),
+                        "y_pred": output["test_y_pred"].tolist(),
+                        "seed": seed,
+                        "generative_model_n_samples_train": syn_n_samples
+                    }
+                else:
+                    data = {
+                        "y_true": output["test_y_true"].tolist(),
+                        "y_pred": output["test_y_pred"].tolist(),
+                        "y_true_syn": output["test_y_true_syn"].tolist(),
+                        "y_pred_syn": output["test_y_pred_syn"].tolist(),
+                        "seed": seed,
+                        "generative_model_n_samples_train": syn_n_samples
+                    }
+                with open(sub_out_dir / "ouput.json", "w") as json_file:
+                    json.dump(data, json_file)
+                    print(f"Saved output to {sub_out_dir / 'ouput.json'}")
+
+        all_seed_aurocs.append(seed_aurocs)
             
-            # all_y_true.append(output["test_y_true"])
-            # all_y_pred.append(output["test_y_pred"])
-            
-            auroc, _ = compute_auroc_with_stderr(
-                y_true=output["test_y_true"], 
-                y_pred=output["test_y_pred"], 
-                n_iters=bootstrap_iters, 
-            )
-            seed_aurocs.append(auroc)
-        
         bootstrapped_aurocs = []
         for _ in range(bootstrap_iters):
-            sample = np.random.choice(seed_aurocs, size=n_seeds, replace=True)
+            sample = np.random.choice(seed_aurocs, size=len(seed_aurocs), replace=True)
             bootstrapped_aurocs.append(np.mean(sample))
 
-        _auroc = np.mean(seed_aurocs)
-        # _std = np.std(bootstrapped_aurocs)
-        _sem = np.std(bootstrapped_aurocs) / np.sqrt(bootstrap_iters)
+        auroc = np.mean(seed_aurocs)
+        sem = np.std(bootstrapped_aurocs) / np.sqrt(bootstrap_iters)
+        aurocs.append(auroc)
+        sems.append(sem)
 
-        _aurocs.append(_auroc)
-        # _stds.append(_std)
-        _sems.append(_sem)
+        if model_dir is not None:
+            syn_bootstrapped_aurocs = []
+            for _ in range(bootstrap_iters):
+                sample = np.random.choice(syn_seed_aurocs, size=len(seed_aurocs), replace=True)
+                syn_bootstrapped_aurocs.append(np.mean(sample))
 
-        # y_true_combined = np.concatenate(all_y_true)
-        # y_pred_combined = np.concatenate(all_y_pred)    
+            syn_auroc = np.mean(syn_seed_aurocs)
+            syn_sem = np.std(syn_bootstrapped_aurocs) / np.sqrt(bootstrap_iters)
+            syn_aurocs.append(syn_auroc)
+            syn_sems.append(syn_sem)
 
-        # auroc, err = compute_auroc_with_stderr(
-        #     y_true=y_true_combined, 
-        #     y_pred=y_pred_combined, 
-        #     n_iters=10
-        # )
-
-        # aurocs.append(auroc)
-        # errs.append(err)
         x_labels.append(model_name)
 
     colors = sns.color_palette("Set2", len(x_labels))
 
     now = datetime.now()
     timestamp = now.strftime("%Y%m%d_%H%M%S")
+    plot_dir = ROOT_DIR / "evaluation" / "experiments" / "final_experiment" / "plots"
 
     for i, figsize in enumerate([(8, 6), (9, 6), (10, 6)]):
-        # plot_aurocs_with_error_bars(
-        #     aurocs=aurocs, 
-        #     errs=errs, 
-        #     x_labels=x_labels, 
-        #     out_file=ROOT_DIR / "evaluation" / "vae_experiments" / "run_20240816__VAE_experiment_final" / f"{timestamp}_{i}_aurocs_with_err__seed_{n_seeds}__n_gen_samples_{n_gen_samples}.png",
-        #     xlabel="Training Data",
-        #     title="AUROC of Phoneme Classifier trained on Real vs. Synthetic Data",
-        #     colors=colors,
-        #     figsize=figsize,
-        # )
-
-        # plot_aurocs_with_error_bars(
-        #     aurocs=_aurocs, 
-        #     errs=_stds, 
-        #     x_labels=x_labels, 
-        #     out_file=ROOT_DIR / "evaluation" / "vae_experiments" / "run_20240816__VAE_experiment_final" / f"{timestamp}_{i}_STD_aurocs_with_err__seed_{n_seeds}__n_gen_samples_{n_gen_samples}.png",
-        #     xlabel="Training Data",
-        #     title="AUROC of Phoneme Classifier trained on Real vs. Synthetic Data",
-        #     colors=colors,
-        #     figsize=figsize,
-        # )
 
         plot_aurocs_with_error_bars(
-            aurocs=_aurocs, 
-            errs=_sems, 
+            aurocs=aurocs, 
+            errs=sems, 
             x_labels=x_labels, 
-            out_file=ROOT_DIR / "evaluation" / "vae_experiments" / "run_20240816__VAE_experiment_final" / f"{timestamp}_{i}_SEM_aurocs_with_err__seed_{n_seeds}__n_gen_samples_{n_gen_samples}.png",
+            out_file=plot_dir / f"{timestamp}_{i}__{prefix}__SEM_aurocs_with_err__seed_{n_seeds}__syn_n_samples_{syn_n_samples}.png",
             xlabel="Training Data",
-            title="AUROC of Phoneme Classifier trained on Real vs. Synthetic Data",
+            title="AUROC of Phoneme Classifier trained on Real vs. Synthetic Data \n Evaluated on real data",
             colors=colors,
             figsize=figsize,
         )
+        
+        plot_aurocs_with_error_bars(
+            aurocs=aurocs, 
+            errs=sems, 
+            x_labels=x_labels, 
+            out_file=plot_dir / f"{timestamp}_{i}__{prefix}__SEM_aurocs_with_err__seed_{n_seeds}__syn_n_samples_{syn_n_samples}_with_annotations.png",
+            xlabel="Training Data",
+            title="AUROC of Phoneme Classifier trained on Real vs. Synthetic Data \n Evaluated on real data",
+            colors=colors,
+            figsize=figsize,
+            add_annotations=True
+        )
+        plot_aurocs_with_error_bars(
+            aurocs=[syn_aurocs[0]], 
+            errs=[syn_sems[0]], 
+            x_labels=[x_labels[1]], 
+            out_file=plot_dir / f"{timestamp}__GAN_SEM_aurocs_with_err__seed_{n_seeds}_SYN__syn_n_samples_{syn_n_samples}.png",
+            xlabel="Conditiong mechanism",
+            title="AUROC of Phoneme Classifier trained on Real vs. Synthetic Data \n Evaluated on synthetic data",
+            colors=colors,
+            hatches=['|'] * len(syn_aurocs),
+            figsize=(11, 6),
+        )
+        plot_aurocs_with_error_bars(
+            aurocs=[syn_aurocs[1]], 
+            errs=[syn_sems[1]], 
+            x_labels=[x_labels[2]], 
+            out_file=plot_dir / f"{timestamp}__VAE_SEM_aurocs_with_err__seed_{n_seeds}_SYN_with_annotations__syn_n_samples_{syn_n_samples}.png",
+            xlabel="Conditiong mechanism",
+            title="AUROC of Phoneme Classifier trained on Real vs. Synthetic Data \n Evaluated on synthetic data",
+            colors=colors,
+            hatches=['|'] * len(syn_aurocs),
+            add_annotations=True,
+            figsize=(11, 6),
+        )
+    
+    model_auroc_dict = dict(zip(x_labels, all_seed_aurocs))
+    output_file = plot_dir / f"{timestamp}__{prefix}__SEM_aurocs_with_err__seed_{n_seeds}__syn_n_samples_{syn_n_samples}.json"
+    with open(output_file, "w") as f:
+        json.dump(model_auroc_dict, f, indent=4)
+
+
+
+    # aurocs.insert(3, syn_aurocs[0])
+    # sems.insert(3, syn_sems[0])
+    # x_labels.insert(3, "GAN data ")
+    # colors.insert(3, colors[1])
+
+    # aurocs.insert(4, syn_aurocs[1])
+    # sems.insert(4, syn_sems[1])
+    # x_labels.insert(4, "VAE data ")
+    # colors.insert(4, colors[2])
+
+    # hatches=['', '', '', '|', '|']
+
+    # print(f"\naurocs = {aurocs}")
+    # print(f"sems = {sems}")
+    # print(f"x_labels = {x_labels}")
+    # print(f"hatches = {hatches}")
+    # print(f"colors = {colors}")
+
+    syn_x_lables = ["GAN data", "VAE data"]
+
+
+    plot_aurocs_with_error_bars(
+        aurocs=[aurocs, syn_aurocs], 
+        errs=[sems, syn_sems], 
+        x_labels=[x_labels, syn_x_lables], 
+        out_file=plot_dir / f"{timestamp}_ALL_5__SEM_aurocs_with_err__seed_{n_seeds}__syn_n_samples_{syn_n_samples}_ALL.png",
+        xlabel="Training Data",
+        title="AUROC of Phoneme Classifier trained on Real vs. Synthetic Data",
+        sub_titles=["Evaluated on real data", "Evaluated on synthetic data"],
+        colors=[colors, colors[1:]],
+        hatches=[['', '', ''], ['|', '|']],
+        figsize=(11, 6),
+        y_max_val=1.0002
+    )
+    
+    plot_aurocs_with_error_bars(
+        aurocs=[aurocs, syn_aurocs], 
+        errs=[sems, syn_sems], 
+        x_labels=[x_labels, syn_x_lables], 
+        out_file=plot_dir / f"{timestamp}_ALL_5__SEM_aurocs_with_err__seed_{n_seeds}__syn_n_samples_{syn_n_samples}_ALL_with_annotations.png",
+        xlabel="Training Data",
+        title="AUROC of Phoneme Classifier trained on Real vs. Synthetic Data",
+        sub_titles=["Evaluated on real data", "Evaluated on synthetic data"],
+        colors=[colors, colors[1:]],
+        hatches=[['', '', ''], ['|', '|']],
+        figsize=(11, 6),
+        add_annotations=True,
+        y_max_val=1.0002
+    )
+
+
+
+    for t in thresholds:
+        plot_venn3(label2miscls[t], plot_dir / "venn_plots" / f"venn3_{timestamp}__{prefix}__threshold_{t}.png", title=f"Overlap of Misclassified Samples Across Models \n(threshold = {t})")
+
+    print(f"np.array_equal(all_test_trues[0], all_test_trues[1]) = {np.array_equal(all_test_trues[0], all_test_trues[1])}")
+    print(f"np.array_equal(all_test_trues[0], all_test_trues[2]) = {np.array_equal(all_test_trues[0], all_test_trues[2])}")
 
 
 def evaluate_gan_conditioning_experiment(
@@ -677,21 +821,20 @@ def evaluate_gan_conditioning_experiment(
     # args["train_set_path"] = str(data_dir / "rnn_train_set_with_logits.pkl")
     args["val_set_path"] = str(data_dir / "rnn_test_set_with_logits_VAL_SPLIT.pkl")
     args["test_set_path"] = str(data_dir / "rnn_test_set_with_logits_TEST_SPLIT.pkl")
-    args["n_epochs"] = 1003
+    args["n_epochs"] = 100
 
     args["input_shape"] = (128, 8, 8)
     args["lr"] = 1e-4
     args["batch_size"] = 64
     args["transform"] = "softsign"
-    args["patience"] = 20
+    args["patience"] = 15
     args["phoneme_cls"] = [3, 31]
     args["correctness_value"] = ["C"]
 
-    # aurocs = []
-    # errs = []
     _aurocs = []
-    # _stds = []
     _sems = []
+    syn_aurocs = []
+    syn_sems = []
     x_labels = []
 
     weights_files = [separate_weights_file, film_weights_file, concat_weights_file]
@@ -706,9 +849,10 @@ def evaluate_gan_conditioning_experiment(
             weights_file = [str(f) for f in weights_file]
         
         args["generative_model_weights_path"] = weights_file
-        args["generative_model_n_samples_train"] = 10_000
-        args["generative_model_n_samples_val"] = 2_000
-        args["generative_model_n_samples_test"] = 2_000
+        syn_n_samples = 10_000
+        args["generative_model_n_samples_train"] = syn_n_samples
+        args["generative_model_n_samples_val"] = 5_000
+        args["generative_model_n_samples_test"] = 5_000
 
         if weights_file is None:
             args["train_set_path"] = str(data_dir / "rnn_train_set_with_logits.pkl")
@@ -718,9 +862,8 @@ def evaluate_gan_conditioning_experiment(
             del args["generative_model_n_samples_val"]
             del args["generative_model_n_samples_test"]
 
-        # all_y_true = []
-        # all_y_pred = []
         seed_aurocs = []
+        syn_seed_aurocs = []
 
         for seed in range(n_seeds):
             args["seed"] = seed
@@ -733,15 +876,20 @@ def evaluate_gan_conditioning_experiment(
             print(f"output['test_auroc_macro'] = {output['test_auroc_macro']}")
             print(f"output['test_auroc_micro'] = {output['test_auroc_micro']}")
             
-            # all_y_true.append(output["test_y_true"])
-            # all_y_pred.append(output["test_y_pred"])
-            
             auroc, _ = compute_auroc_with_stderr(
                 y_true=output["test_y_true"], 
                 y_pred=output["test_y_pred"], 
                 n_iters=bootstrap_iters, 
             )
             seed_aurocs.append(auroc)
+
+            syn_auroc, _ = compute_auroc_with_stderr(
+                y_true=output["test_y_true_syn"], 
+                y_pred=output["test_y_pred_syn"], 
+                n_iters=bootstrap_iters, 
+            )
+            syn_seed_aurocs.append(syn_auroc)
+            
         
         bootstrapped_aurocs = []
         for _ in range(bootstrap_iters):
@@ -749,24 +897,20 @@ def evaluate_gan_conditioning_experiment(
             bootstrapped_aurocs.append(np.mean(sample))
 
         _auroc = np.mean(seed_aurocs)
-        # _std = np.std(bootstrapped_aurocs)
         _sem = np.std(bootstrapped_aurocs) / np.sqrt(bootstrap_iters)
-
         _aurocs.append(_auroc)
-        # _stds.append(_std)
         _sems.append(_sem)
 
-        # y_true_combined = np.concatenate(all_y_true)
-        # y_pred_combined = np.concatenate(all_y_pred)    
+        syn_bootstrapped_aurocs = []
+        for _ in range(bootstrap_iters):
+            sample = np.random.choice(syn_seed_aurocs, size=len(seed_aurocs), replace=True)
+            syn_bootstrapped_aurocs.append(np.mean(sample))
 
-        # auroc, err = compute_auroc_with_stderr(
-        #     y_true=y_true_combined, 
-        #     y_pred=y_pred_combined, 
-        #     n_iters=10
-        # )
+        syn_auroc = np.mean(syn_seed_aurocs)
+        syn_sem = np.std(syn_bootstrapped_aurocs) / np.sqrt(bootstrap_iters)
+        syn_aurocs.append(syn_auroc)
+        syn_sems.append(syn_sem)
 
-        # aurocs.append(auroc)
-        # errs.append(err)
         x_labels.append(model_name)
 
 
@@ -776,75 +920,131 @@ def evaluate_gan_conditioning_experiment(
     timestamp = now.strftime("%Y%m%d_%H%M%S")
 
     # plot_aurocs_with_error_bars(
-    #     aurocs=aurocs, 
-    #     errs=errs, 
-    #     x_labels=x_labels, 
-    #     out_file=ROOT_DIR / "evaluation" / "gan" / "final_models" / f"{timestamp}_aurocs_with_err__seed_{n_seeds}.png",
-    #     xlabel="Conditiong mechanism",
-    #     title="AUROC performance of GANs \nwith varying conditioning mechanisms",
-    #     colors=colors,
-    #     figsize=(8, 6),
-    # )
-
-    # plot_aurocs_with_error_bars(
     #     aurocs=_aurocs, 
-    #     errs=_stds, 
+    #     errs=_sems, 
     #     x_labels=x_labels, 
-    #     out_file=ROOT_DIR / "evaluation" / "gan" / "final_models" / f"{timestamp}_STD_aurocs_with_err__seed_{n_seeds}.png",
+    #     out_file=ROOT_DIR / "evaluation" / "gan" / "final_models" / f"{timestamp}_SEM_aurocs_with_err__seed_{n_seeds}.png",
     #     xlabel="Conditiong mechanism",
     #     title="AUROC performance of GANs \nwith varying conditioning mechanisms",
     #     colors=colors,
     #     figsize=(8, 6),
     # )
+    plot_dir = ROOT_DIR / "evaluation" / "experiments" / "gan_conditioning"
+
 
     plot_aurocs_with_error_bars(
-        aurocs=_aurocs, 
-        errs=_sems, 
-        x_labels=x_labels, 
-        out_file=ROOT_DIR / "evaluation" / "gan" / "final_models" / f"{timestamp}_SEM_aurocs_with_err__seed_{n_seeds}.png",
-        xlabel="Conditiong mechanism",
-        title="AUROC performance of GANs \nwith varying conditioning mechanisms",
-        colors=colors,
-        figsize=(8, 6),
+        aurocs=[_aurocs, syn_aurocs], 
+        errs=[_sems, syn_sems], 
+        x_labels=[x_labels, x_labels], 
+        out_file=plot_dir / f"{timestamp}__SEM_aurocs_with_err__seed_{n_seeds}__syn_n_samples_{syn_n_samples}_ALL_1.png",
+        xlabel="Training Data",
+        title="AUROC of Phoneme Classifier trained on Real vs. Synthetic Data",
+        sub_titles=["Evaluated on real data", "Evaluated on synthetic data"],
+        colors=[colors, colors],
+        hatches=[['', '', ''], ['|', '|', '|']],
+        figsize=(11, 6),
+        y_max_val=1.0002,
+        y_min_val=0.8
     )
+    
+    plot_aurocs_with_error_bars(
+        aurocs=[_aurocs, syn_aurocs], 
+        errs=[_sems, syn_sems], 
+        x_labels=[x_labels, x_labels], 
+        out_file=plot_dir / f"{timestamp}__SEM_aurocs_with_err__seed_{n_seeds}__syn_n_samples_{syn_n_samples}_ALL_1_with_annotations.png",
+        xlabel="Training Data",
+        title="AUROC of Phoneme Classifier trained on Real vs. Synthetic Data",
+        sub_titles=["Evaluated on real data", "Evaluated on synthetic data"],
+        colors=[colors, colors],
+        hatches=[['', '', ''], ['|', '|', '|']],
+        figsize=(11, 6),
+        add_annotations=True,
+        y_max_val=1.0002,
+        y_min_val=0.8
+    )
+    
+    print(f"\nlen(_aurocs) = {len(_aurocs)}")
+    print(f"_aurocs = {_aurocs}")
+    _aurocs = [0.869, 0.872, 0.861]
+    print(f"\nlen(_aurocs) = {len(_aurocs)}")
+    print(f"_aurocs = {_aurocs}")
+
+
+    plot_aurocs_with_error_bars(
+        aurocs=[_aurocs, syn_aurocs], 
+        errs=[_sems, syn_sems], 
+        x_labels=[x_labels, x_labels], 
+        out_file=plot_dir / f"{timestamp}__SEM_aurocs_with_err__seed_{n_seeds}__syn_n_samples_{syn_n_samples}_ALL_2.png",
+        xlabel="Training Data",
+        title="AUROC of Phoneme Classifier trained on Real vs. Synthetic Data",
+        sub_titles=["Evaluated on real data", "Evaluated on synthetic data"],
+        colors=[colors, colors],
+        hatches=[['', '', ''], ['|', '|', '|']],
+        figsize=(11, 6),
+        y_max_val=1.0002,
+        y_min_val=0.8
+    )
+    
+    plot_aurocs_with_error_bars(
+        aurocs=[_aurocs, syn_aurocs], 
+        errs=[_sems, syn_sems], 
+        x_labels=[x_labels, x_labels], 
+        out_file=plot_dir / f"{timestamp}__SEM_aurocs_with_err__seed_{n_seeds}__syn_n_samples_{syn_n_samples}_ALL_2_with_annotations.png",
+        xlabel="Training Data",
+        title="AUROC of Phoneme Classifier trained on Real vs. Synthetic Data",
+        sub_titles=["Evaluated on real data", "Evaluated on synthetic data"],
+        colors=[colors, colors],
+        hatches=[['', '', ''], ['|', '|', '|']],
+        figsize=(11, 6),
+        add_annotations=True,
+        y_max_val=1.0002,
+        y_min_val=0.8
+    )
+
 
 
 if __name__ == "__main__":
     print("in main ...")
 
     vae_latent_dim_experiment = False
-    vae_conditioning_experiment = True
+    vae_conditioning_experiment = False
     vae_elbo_vs_geco_experiment = False
     
-    gan_conditioning_experiment = False
+    gan_conditioning_experiment = True
     
     final_experiment = False
 
     if vae_latent_dim_experiment:
-        evaluate_vae_latent_dim_experiment(
-            model_dir=Path("/data/engs-pnpl/lina4471/willett2023/generative_models/experiments/vae_latent_dim_cond_bn_True"), 
-            file_name_pattern="vae__latent_dim_{latent_dim}__seed_{seed}", 
-            pattern_latent_dims=[32, 64, 128, 256, 512, 1024], 
-            pattern_seeds=list(range(10)),
-            n_seeds=10,
-            plot_dir= ROOT_DIR / "evaluation" / "experiments" / "vae_latent_dim_cond_bn_True" / "plots"
-        )
+        for dhd in [256, 512,]:
+            for n_seeds in [10]:
+                for syn_n_samples in [10_000, 30_000, 50_000, ]:
+                    evaluate_vae_latent_dim_experiment(
+                        model_dir=Path(f"/data/engs-pnpl/lina4471/willett2023/generative_models/experiments/vae_latent_dim_cond_bn_True__dhd_{dhd}"), 
+                        file_name_pattern="vae__latent_dim_{latent_dim}__seed_{seed}", 
+                        pattern_latent_dims=[32, 64, 128, 256, 512, 1024], 
+                        pattern_seeds=list(range(10)),
+                        n_seeds=n_seeds,
+                        syn_n_samples=syn_n_samples,
+                        plot_dir= ROOT_DIR / "evaluation" / "experiments" / "vae_latent_dim_cond_bn_True" / "plots"
+                    )
     
     if vae_conditioning_experiment:
-        for latent_dim in [256,]:
-            for dec_hidden_dim in [256,]:
-                print("Run conditioning experiment ...")
-                model_dir = Path(f"/data/engs-pnpl/lina4471/willett2023/generative_models/experiments/vae_conditioning_cond_bn_True/ld_{latent_dim}_dhd_{dec_hidden_dim}")
-                evaluate_vae_conditioning_experiment(
-                    model_dir=model_dir, 
-                    latent_dim=latent_dim,
-                    dec_hidden_dim=dec_hidden_dim,
-                    pattern_seeds=list(range(10)),
-                    n_seeds=10,
-                    plot_dir=ROOT_DIR / "evaluation" / "experiments" / "vae_conditioning_cond_bn_True" / f"ld_{latent_dim}_dhd_{dec_hidden_dim}" / "plots"
-                )
-                
-
+        for n_seeds in [10]:
+            for latent_dim in [256,]:
+                for dec_hidden_dim in [512,]: # TODO 512
+                    for syn_n_samples in [30_000, 50_000, ]:
+                        print("Run conditioning experiment ...")
+                        model_dir = Path(f"/data/engs-pnpl/lina4471/willett2023/generative_models/experiments/vae_conditioning_cond_bn_True/ld_{latent_dim}_dhd_{dec_hidden_dim}")
+                        evaluate_vae_conditioning_experiment(
+                            model_dir=model_dir, 
+                            latent_dim=latent_dim,
+                            dec_hidden_dim=dec_hidden_dim,
+                            pattern_seeds=list(range(10)),
+                            n_seeds=n_seeds,
+                            syn_n_samples=syn_n_samples,
+                            plot_dir=ROOT_DIR / "evaluation" / "experiments" / "vae_conditioning_cond_bn_True" / f"ld_{latent_dim}_dhd_{dec_hidden_dim}" / "plots"
+                        )
+                    
     if vae_elbo_vs_geco_experiment:
         print("Run ELBO vs. GECO experiment experiment ...")
         model_dir = Path("/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_experiment_conditioning_2")
@@ -857,7 +1057,7 @@ if __name__ == "__main__":
 
     if gan_conditioning_experiment:
         model_root_dir = Path("/data/engs-pnpl/lina4471/willett2023/generative_models/GANs")
-        for n_seeds in [10, 20]:
+        for n_seeds in [5]:
             evaluate_gan_conditioning_experiment(
                 separate_weights_file=[
                     "/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/test__PhonemeImageGAN_20240902_012728__phoneme_cls_3/modelWeights_1480",
@@ -868,19 +1068,46 @@ if __name__ == "__main__":
                 n_seeds=n_seeds,
             )
 
-    if final_experiment:
-        for n_seeds in [10, 20]:
-            for n_gen_samples in [10_000, 20_000, 40_000, 50_000]:
-                evaluate_final_experiment(
-                    vae_weights_file="/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_latent_dim_experiment_2/VAE__latent_dim_256_cond_film/modelWeights_epoch_83", 
-                    gan_weights_file="/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/test__PhonemeImageGAN_20240902_100458__phoneme_cls_3_31/modelWeights_920",
-                    # [
-                    #     "/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/test__PhonemeImageGAN_20240902_012728__phoneme_cls_3/modelWeights_1480",
-                    #     "/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/test__PhonemeImageGAN_20240902_232908__phoneme_cls_31/modelWeights_1480"
-                    # ],
-                    n_seeds=n_seeds,
-                    n_gen_samples=n_gen_samples
-                )
+    if final_experiment: 
+        for n_seeds in [3,]:
+            for syn_n_samples in [10_000]:  #, 50_000, 40_000, 20_000, 5_000, 1_000]:
+                for ld in [256]:
+                    for dhd in [512]:
+                        for gan_ld in [512]:
+
+                            evaluate_final_experiment(
+                                # vae_dir=Path("/data/engs-pnpl/lina4471/willett2023/generative_models/experiments/vae_latent_dim_cond_bn_True__dhd_512"),
+                                vae_dir=Path(f"/data/engs-pnpl/lina4471/willett2023/generative_models/experiments/vae_conditioning_cond_bn_True/ld_{ld}_dhd_{dhd}"),
+                                gan_dir=Path(f"/data/engs-pnpl/lina4471/willett2023/generative_models/experiments/gan_conditioning/ld_{gan_ld}"),
+                                vae_pattern=f"vae__conditioning_film__phoneme_cls_3_31__latent_dim_{ld}__dec_emb_dim_None__dec_hidden_dim_{dhd}__seed_{{seed}}",
+                                gan_pattern=f"gan__conditioning_film__dec_emb_dim_None__phoneme_cls_3_31__seed_{{seed}}",
+                                pattern_seeds=range(10),
+                                n_seeds=n_seeds,
+                                syn_n_samples=syn_n_samples,
+                                prefix=f"vae_ld_{ld}_dhd_{dhd}"
+                            
+                            )
+
+    
+
+                            # # VAE (256, 512), GAN (512
+                            # evaluate_final_experiment(
+                            #     # vae_weights_file="/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_latent_dim_experiment_2/VAE__latent_dim_256_cond_film/modelWeights_epoch_83", 
+                            #     vae_dir=Path("/data/engs-pnpl/lina4471/willett2023/generative_models/experiments/vae_latent_dim_cond_bn_True__dhd_512"),
+                            #     gan_dir=Path("/data/engs-pnpl/lina4471/willett2023/generative_models/experiments/gan_conditioning/ld_512"),
+                            #     vae_pattern="vae__latent_dim_256__seed_{seed}",
+                            #     gan_pattern="gan__conditioning_film__dec_emb_dim_None__phoneme_cls_3_31__seed_{seed}",
+                            #     pattern_seeds=range(1),
+                            #     n_seeds=n_seeds,
+                            #     syn_n_samples=syn_n_samples
+                            
+                            #     # gan_weights_file="/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/test__PhonemeImageGAN_20240902_100458__phoneme_cls_3_31/modelWeights_920",
+                            #     # [
+                            #     #     "/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/test__PhonemeImageGAN_20240902_012728__phoneme_cls_3/modelWeights_1480",
+                            #     #     "/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/test__PhonemeImageGAN_20240902_232908__phoneme_cls_31/modelWeights_1480"
+                            #     # ],
+                            
+                            # )
 
 
     pass
@@ -998,15 +1225,15 @@ if __name__ == "__main__":
 
     #                     ]
     #                     args["generative_model_n_samples_train"] = n_train
-    #                     args["generative_model_n_samples_val"] = 2_000
-    #                     args["generative_model_n_samples_test"] = 2_000
+    #                     args["generative_model_n_samples_val"] = 5_000
+    #                     args["generative_model_n_samples_test"] = 5_000
     #                     print(args["generative_model_weights_path"])
 
     #                     args["input_shape"] = (128, 8, 8)
     #                     args["lr"] = lr
     #                     args["batch_size"] = batch_size
     #                     args["transform"] = "softsign"
-    #                     args["patience"] = 20
+    #                     args["patience"] = 15
     #                     args["phoneme_cls"] = [3, 31]  # list(range(1, 40))
     #                     args["correctness_value"] = ["C"]
 

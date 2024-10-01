@@ -2,6 +2,7 @@ import json
 import pickle
 from datetime import datetime
 from pathlib import Path
+import os
 
 import matplotlib.pyplot as plt
 import torch
@@ -156,6 +157,12 @@ def main(args: dict) -> None:
     print(f"len(train_dl) = {len(train_dl)}")
     print(f"n_steps = {n_steps}")
 
+    highest_auroc = -1.0
+    highest_f1 = -1.0
+
+    best_auroc_file = None
+    best_f1_file = None
+
     for epoch in range(n_epochs):
         G_losses_epoch = []
         D_losses_epoch = []
@@ -199,15 +206,14 @@ def main(args: dict) -> None:
         file = out_dir / f"modelWeights"
         print(f"Storing GAN weights to: {file}")
 
-        if epoch > 700 and epoch % 20 == 0:
-            file = out_dir / f"modelWeights_{epoch}"
-            gan.save_state_dict(file)
+        if epoch > 650 and epoch % 20 == 0:
 
             if len(classes) > 1:
                 stats = train_phoneme_classifier(
                     gen_models=[gan],
                     n_samples_train_syn=10_000,
-                    n_samples_val=2_000,
+                    n_samples_val=5_000,
+                    n_samples_test=5_000,
                     val_dl_real=val_dl, 
                     test_dl_real=test_dl,
                     phoneme_classes=classes,
@@ -220,16 +226,30 @@ def main(args: dict) -> None:
                     out_dir=out_dir,
                 )
 
-                val_aurocs.append(max(stats["val_aurocs_macro"]["val-dl-real"]))
-                test_aurocs.append(stats["test_auroc_macro"])
-                val_f1s.append(max(stats["val_f1_macro"]["val-dl-real"]))
-                test_f1s.append(stats["test_f1_macro"])
-                epochs.append(epoch)
+                val_auroc = max(stats["val_aurocs_macro"]["val-dl-real"])
+                if val_auroc > highest_auroc:
+                    highest_auroc = val_auroc
 
-                bar_plot(val_aurocs, epochs, out_file=plot_dir / f"stats_aurocs_val.png", title="AUROC on validation set (real)", ylabel="AUROC", xlabel="Epoch", color='blue')
-                bar_plot(test_aurocs, epochs, out_file=plot_dir / f"stats_aurocs_test.png", title="AUROC on test set (real)", ylabel="AUROC", xlabel="Epoch", color='blue')
-                bar_plot(val_f1s, epochs, out_file=plot_dir / f"stats_f1s_val.png", title="F1 scores on validation set (real)", ylabel="F1 Score", xlabel="Epoch", color='blue')
-                bar_plot(test_f1s, epochs, out_file=plot_dir / f"stats_f1s_test.png", title="F1 scores on test set (real) ", ylabel="F1 Score", xlabel="Epoch", color='blue')
+                    if best_auroc_file is not None and os.path.exists(best_auroc_file):
+                        os.remove(best_auroc_file)
+                    
+                    best_auroc_file = out_dir / f"modelWeights_{epoch}_best_auroc"
+                    gan.save_state_dict(best_auroc_file)
+
+                val_f1 = max(stats["val_f1_macro"]["val-dl-real"])
+                if val_f1 > highest_f1:
+                    highest_f1 = val_f1
+
+                    if best_f1_file is not None and os.path.exists(best_f1_file):
+                        os.remove(best_f1_file)
+                    
+                    best_f1_file = out_dir / f"modelWeights_{epoch}_best_f1"
+                    gan.save_state_dict(best_f1_file)
+
+
+            else:
+                file = out_dir / f"modelWeights_{epoch}"
+                gan.save_state_dict(file)
 
         plot_gan_losses(
             G_losses,
@@ -260,58 +280,61 @@ def plot_accuracies(accs: list, out_file: Path, title: str) -> None:
 
 
 if __name__ == "__main__":
-    for lr_g, lr_d in [(1e-4, 5e-5),]:  #, (1e-5, 1e-5), (1e-4, 1e-5)]:  # [(5e-05, 5e-05), (1e-04, 1e-05), (1e-05, 1e-05)]:  #, 1e-5, 1e-3]:  # [1e-3, 1e-4, 1e-5]:
-        for n_critic in [5]:  # , 2]:
-            for latent_dim in [256]:
-                for phoneme_cls in [[3],]:
-                    for conditioning in [None]:
-                        for dec_emb_dim in [None]:
-                            args["cond_bn"] = False
 
-                            now = datetime.now()
-                            timestamp = now.strftime("%Y%m%d_%H%M%S")
+    for seed in [8, 9,]:
+        for lr_g, lr_d in [(1e-4, 5e-5),]:  #, (1e-5, 1e-5), (1e-4, 1e-5)]:  # [(5e-05, 5e-05), (1e-04, 1e-05), (1e-05, 1e-05)]:  #, 1e-5, 1e-3]:  # [1e-3, 1e-4, 1e-5]:
+            for n_critic in [5]:  # , 2]:
+                for latent_dim in [512]:
+                    for phoneme_cls in [[3, 31],]:
+                        for conditioning in ["concat"]:
+                            for dec_emb_dim in [32]:
 
-                            print("in main ...")
-                            args = {}
-                            args["seed"] = 0
-                            args["device"] = "cuda"
-                            args["timestamp"] = timestamp
+                                now = datetime.now()
+                                timestamp = now.strftime("%Y%m%d_%H%M%S")
 
-                            args["phoneme_cls"] = phoneme_cls
-                            args["conditioning"] = conditioning
+                                print("in main ...")
+                                args = {}
+                                args["seed"] = seed
+                                args["device"] = "cuda"
+                                args["timestamp"] = timestamp
 
-                            args["batch_size"] = 128
+                                args["phoneme_cls"] = phoneme_cls
+                                args["conditioning"] = conditioning
+                                args["cond_bn"] = True
 
-                            args["latent_dim"] = latent_dim
-                            args["dec_emb_dim"] = dec_emb_dim
-                            args["input_shape"] = (4, 64, 32)
+                                args["batch_size"] = 128
 
-                            args["n_epochs"] = 1800
-                            args["lr_g"] = lr_g
-                            args["lr_d"] = lr_d
-                            
-                            args["n_critic"] = n_critic
-                            args["transform"] = "softsign"
+                                args["latent_dim"] = latent_dim
+                                args["dec_emb_dim"] = dec_emb_dim
+                                args["input_shape"] = (4, 64, 32)
 
-                            # args["vae_path"] = "/data/engs-pnpl/lina4471/willett2023/generative_models/VAEs_binary/VAE_conditional_20240807_182747/modelWeights_epoch_120"
-                            args["train_set_path"] = (
-                                "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
-                            )
-                            args["val_set_path"] = (
-                                "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_VAL_SPLIT.pkl"
-                            )
-                            args["test_set_path"] = (
-                                "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_TEST_SPLIT.pkl"
-                            )
-                            args["output_dir"] = (
-                                f"/data/engs-pnpl/lina4471/willett2023/generative_models/GANs/test__PhonemeImageGAN_{timestamp}__phoneme_cls_{'_'.join(map(str, args['phoneme_cls']))}"
-                            )
-                            args["plot_dir"] = str((
-                                ROOT_DIR
-                                / "evaluation"
-                                / "gan"
-                                / f"test__run_20240829_cond_None"  # "test__run_20240829_gradient_penatly"
-                                / f"gan_{args['timestamp']}_in_{'_'.join(map(str, args['input_shape']))}__latdim_{args['latent_dim']}__lrg_{args['lr_g']}__lrd_{args['lr_d']}__phoneme_cls_{'_'.join(map(str, args['phoneme_cls']))}__cond_{args['conditioning']}__dec_emb_dim_{args['dec_emb_dim']}"
-                            ))
+                                args["n_epochs"] = 1800
+                                args["lr_g"] = lr_g
+                                args["lr_d"] = lr_d
+                                
+                                args["n_critic"] = n_critic
+                                args["transform"] = "softsign"
 
-                            main(args)
+                                args["train_set_path"] = (
+                                    "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_train_set_with_logits.pkl"
+                                )
+                                args["val_set_path"] = (
+                                    "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_VAL_SPLIT.pkl"
+                                )
+                                args["test_set_path"] = (
+                                    "/data/engs-pnpl/lina4471/willett2023/competitionData/rnn_test_set_with_logits_TEST_SPLIT.pkl"
+                                )
+                                args["output_dir"] = (
+                                    f"/data/engs-pnpl/lina4471/willett2023/generative_models/experiments/gan_conditioning/ld_{latent_dim}/gan__conditioning_{conditioning}__dec_emb_dim_{dec_emb_dim}__phoneme_cls_{'_'.join(map(str, args['phoneme_cls']))}__seed_{seed}"
+                                )
+                                args["plot_dir"] = str(
+                                    ROOT_DIR
+                                    / "evaluation"
+                                    / "experiments"
+                                    / "gan_conditioning"
+                                    / f"ld_{latent_dim}"
+                                    / f"gan__conditioning_{conditioning}__dec_emb_dim_{dec_emb_dim}__phoneme_cls_{'_'.join(map(str, args['phoneme_cls']))}__seed_{seed}"
+
+                                )
+
+                                main(args)

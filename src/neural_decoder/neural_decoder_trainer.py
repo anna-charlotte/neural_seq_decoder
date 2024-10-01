@@ -9,7 +9,7 @@ import hydra
 import numpy as np
 import torch
 from edit_distance import SequenceMatcher
-from torch.utils.data import DataLoader, WeightedRandomSampler
+from torch.utils.data import DataLoader, WeightedRandomSampler, Subset
 
 from data.dataloader import MergedDataLoader
 from data.dataset import PhonemeDataset, SpeechDataset, _padding
@@ -27,6 +27,7 @@ def get_data_loader(
     dataset_cls: Type[Any] = SpeechDataset,
     phoneme_ds_filter: dict = None,
     class_weights=None,
+    n_samples=None,
 ) -> DataLoader:
     if phoneme_ds_filter is None:
         phoneme_ds_filter = {}
@@ -38,14 +39,23 @@ def get_data_loader(
     else:
         raise ValueError(f"Given dataset_cls is not valid: {dataset_cls.__name__}")
 
+    if n_samples is not None:
+        subset_indices = list(range(n_samples))
+        print(f"len(ds) = {len(ds)}")
+        ds = Subset(ds, subset_indices)
+        print(f"len(ds) = {len(ds)}")
+
     sampler = None
-    if class_weights is not None:
+    if class_weights is not None and n_samples is not None:
         all_labels = torch.tensor(ds.phonemes)
         all_y = _get_indices_in_classes(labels=all_labels, classes=torch.tensor(ds.phoneme_cls))
         sample_weights = class_weights[torch.tensor(all_y).long()]
         sampler = WeightedRandomSampler(
             weights=sample_weights, num_samples=len(sample_weights), replacement=True
         )
+    print(f"class_weights = {class_weights}")
+    print(f"n_samples = {n_samples}")
+    print(f"sampler = {sampler}")
 
     if class_weights is not None and shuffle:
         raise ValueError("class_weights option is mutually exclusive with shuffle option.")

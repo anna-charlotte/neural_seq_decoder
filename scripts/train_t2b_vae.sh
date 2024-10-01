@@ -4,8 +4,8 @@
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks-per-node=4
 #SBATCH --mem-per-cpu=8G
-#SBATCH --job-name=lat4
-#SBATCH --time=15:00:00
+#SBATCH --job-name=trVaeCd
+#SBATCH --time=24:00:00
 #SBATCH --partition=long
 #SBATCH --output=/home/lina4471/willett2023/slurm_out/train_t2b_vae_long%j.out
 #SBATCH --mail-type=BEGIN,END

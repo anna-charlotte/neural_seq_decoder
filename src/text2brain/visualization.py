@@ -14,49 +14,146 @@ from neural_decoder.phoneme_utils import PHONE_DEF, ROOT_DIR
 from evaluation import compute_auroc_with_stderr
 
 
-def plot_aurocs_with_error_bars(aurocs, errs, x_labels, out_file: Path, title="AUROC Plot", ylabel="AUROC", xlabel="Models", colors=None, figsize=(10, 6)):
+def plot_aurocs_with_error_bars(aurocs, errs, x_labels, out_file: Path, title="AUROC Plot", sub_titles="",  ylabel="AUROC", xlabel="Models", colors=None, figsize=(10, 6), add_annotations: bool = False, hatches=None, rotate_xlabels: bool = False, y_max_val=None, y_min_val=None):
 
-    aurocs = np.array(aurocs)
-    errs = np.array(errs)
-    x_labels = [str(x) for x in x_labels]
+    if not isinstance(aurocs[0], list):
+        aurocs = [aurocs]  
+        errs = [errs] 
+        x_labels = [x_labels]
+        colors = [colors]
+        hatches = [hatches]
+        sub_titles = [sub_titles]
 
+    bar_counts = [len(a) for a in aurocs]
+    bar_counts[0] += 0.3
+    total_bars = sum(bar_counts)
+    width_ratios = [count / total_bars for count in bar_counts]
+
+    num_subplots = len(aurocs)
+    
+    fig, axes = plt.subplots(1, num_subplots, figsize=figsize, constrained_layout=True, 
+                             sharey=True, gridspec_kw={'width_ratios': width_ratios})
+    
+    if num_subplots == 1:
+        axes = [axes]
+    
     plt.rcParams.update({
-        'axes.titlesize': 17.5,
-        'axes.labelsize': 15.5,
-        'xtick.labelsize': 13.5,
-        'ytick.labelsize': 13.5,
-        'legend.fontsize': 13.5,
-        'font.size': 13.5
+        'axes.titlesize': 20,
+        'axes.labelsize': 18,
+        'xtick.labelsize': 16,
+        'ytick.labelsize': 16,
+        'legend.fontsize': 16,
+        'font.size': 16
     })
+    fig.suptitle(title, fontsize=21)
 
-    plt.figure(figsize=figsize)
-    if colors is None:
-        colors = 'skyblue'
-    elif isinstance(colors, list) and len(colors) != len(aurocs):
-        raise ValueError("The length of the colors list must match the number of bars.")
-
+    y_min = 100
+    y_max = -100
     
-    plt.bar(x_labels, aurocs, yerr=errs, capsize=5, color=colors, edgecolor='black')
-
-    plt.title(title)
-    plt.xlabel(xlabel)
-    plt.ylabel(ylabel)
+    for i, (ax, auroc_list, err_list, sub_labels, sub_colors, sub_hatches, sub_title) in enumerate(zip(axes, aurocs, errs, x_labels, colors, hatches, sub_titles)):
+        if sub_colors is None:
+            sub_colors = ['skyblue'] * len(auroc_list)
+        elif isinstance(sub_colors, list) and len(sub_colors) > len(auroc_list):
+            sub_colors = sub_colors[:len(auroc_list)]
+        
+        if sub_hatches is None:
+            sub_hatches = [''] * len(auroc_list)
+        
+        x_labels_str = [str(x) for x in sub_labels] if not isinstance(sub_labels[0], list) else [str(x) for x in sub_labels[i]]
+        
+        bars = ax.bar(x_labels_str, auroc_list, yerr=err_list, capsize=5, color=sub_colors, edgecolor='black')
+        
+        for bar, hatch in zip(bars, sub_hatches):
+            bar.set_hatch(hatch)
+        
+        ax.set_title(sub_title, fontsize=19)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        
+        range_auroc = max(auroc_list) - min(auroc_list)
+        y_min = min(y_min, min(auroc_list) - range_auroc / 3)
+        y_max = max(y_max, max(auroc_list) + range_auroc / 4)
+        
+        if rotate_xlabels:
+            ax.set_xticks(rotation=45, ha='right')
+        
+        if add_annotations:
+            for bar, auroc, err in zip(bars, auroc_list, err_list):
+                y_position = bar.get_height() + err + 0.01
+                ax.text(bar.get_x() + bar.get_width() / 2, y_position, f"{auroc:.3f} ± {err:.5f}", 
+                        ha='center', va='bottom', fontsize=12)
+        
+        ax.grid(True, linestyle='--', alpha=0.7)
     
-    range_auroc = max(aurocs) - min(aurocs)
-    y_min = min(aurocs) - range_auroc / 3
-    y_max = max(aurocs) + range_auroc / 4
     if y_max - y_min < 0.03:
         y_min -= 0.005
         y_max += 0.005
-    plt.ylim(y_min, y_max)
 
-    # plt.xticks(ha='right')
-    plt.grid(True, linestyle='--', alpha=0.7)
+    y_max = min(y_max, 1.0001)
+    if y_max_val is not None:
+        y_max = y_max_val
+    if y_min_val is not None:
+        y_min = y_min_val
+    ax.set_ylim(y_min, y_max)
+
     plt.tight_layout()
 
+    
     print(f"Saving AUROC plot to: {out_file}")
     plt.savefig(out_file)
     plt.close()
+
+
+    # aurocs = np.array(aurocs)
+    # errs = np.array(errs)
+    # x_labels = [str(x) for x in x_labels]
+
+    # plt.figure(figsize=figsize)
+    # if colors is None:
+    #     colors = 'skyblue'
+    # elif isinstance(colors, list) and len(colors) > len(aurocs):
+    #     colors = colors[:len(aurocs)]
+    #     # raise ValueError("The length of the colors list must match the number of bars.")
+
+    # if hatches is None:
+    #     hatches = [''] * len(aurocs)
+    
+    # bars = plt.bar(x_labels, aurocs, yerr=errs, capsize=5, color=colors, edgecolor='black')
+
+    # # Apply hatches to bars if specified
+    # for bar, hatch in zip(bars, hatches):
+    #     bar.set_hatch(hatch)
+        
+    # plt.title(title)
+    # plt.xlabel(xlabel)
+    # plt.ylabel(ylabel)
+    
+    # range_auroc = max(aurocs) - min(aurocs)
+    # y_min = min(aurocs) - range_auroc / 3
+    # y_max = max(aurocs) + range_auroc / 4
+    # if y_max - y_min < 0.03:
+    #     y_min -= 0.005
+    #     y_max += 0.005
+
+    # y_max = min(y_max, 1.0001)
+    # plt.ylim(y_min, y_max)
+
+    # if rotate_xlabels:
+    #     plt.xticks(rotation=45, ha='right')
+
+    # if add_annotations:
+    #     for bar, auroc, err in zip(bars, aurocs, errs):
+    #         y_position = bar.get_height() + err + 0.01  
+    #         plt.text(bar.get_x() + bar.get_width() / 2, y_position, f"{auroc:.3f} ± {err:.5f}",
+    #                 ha='center', va='bottom', fontsize=12)
+
+    # # plt.xticks(ha='right')
+    # plt.grid(True, linestyle='--', alpha=0.7)
+    # plt.tight_layout()
+
+    # print(f"Saving AUROC plot to: {out_file}")
+    # plt.savefig(out_file)
+    # plt.close()
 
 
 def bar_plot(bars, x_labels, out_file: Path, title="AUROC Plot", ylabel="AUROC", xlabel="Models", color='blue'):

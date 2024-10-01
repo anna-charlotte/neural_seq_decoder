@@ -101,7 +101,7 @@ class PhonemeClassifier(nn.Module):
         self,
         train_dl: DataLoader,
         val_dls: List[DataLoader],
-        test_dl: DataLoader,
+        test_dl: List[DataLoader],
         n_classes: int,
         optimizer: optim,
         criterion,
@@ -111,7 +111,7 @@ class PhonemeClassifier(nn.Module):
         patience: int,
         model_classes: list,
     ) -> dict:
-        print("Train PhonemeClassifier model ...")
+        print("\nTrain PhonemeClassifier model ...")
         stop_training = False
         best_val_auroc = 0.0
         count_patience = 0
@@ -129,6 +129,7 @@ class PhonemeClassifier(nn.Module):
 
         for i_epoch in range(n_epochs):
             for j_batch, data in enumerate(train_dl):
+
                 self.train()
                 optimizer.zero_grad()
 
@@ -205,7 +206,7 @@ class PhonemeClassifier(nn.Module):
                         dump_json_dict(stats, out_file=out_dir / f"trainingStats.json")
 
                         if "real" in val_dl.name:
-                            if val_auroc_macro > best_val_auroc:
+                            if val_auroc_macro > best_val_auroc:  
                     
                                 count_patience = 0
                                 model_file = out_dir / "modelWeights"
@@ -215,51 +216,38 @@ class PhonemeClassifier(nn.Module):
                                 print(f"New best (real) val auroc: {best_val_auroc:.4f} (epoch: {i_epoch})")
                                 
                                 if test_dl is not None:
-                                    test_stats = self.eval_model(test_dl, criterion, device)
-                                    test_auroc = test_stats.auroc_macro
-                                    stats["test_acc"] =  test_stats.acc
-                                    stats["test_auroc_macro"] =  test_stats.auroc_macro
-                                    stats["test_auroc_micro"] =  test_stats.auroc_micro
-                                    stats["test_y_true"] = test_stats.all_labels_pt.numpy()
-                                    stats["test_y_pred"] = test_stats.all_preds_pt.numpy()
-                                    stats["test_f1_micro"] = test_stats.f1_micro
-                                    stats["test_f1_macro"] = test_stats.f1_macro
-                                    
-                                    print(f"Test auroc at the time of best validation auroc: test_auroc={test_auroc} (test_dl.name={test_dl.name})")
-                                    print(f"test_stats.f1_macro = {test_stats.f1_macro}")
+                                    assert isinstance(test_dl, list), f"test_dl is not a list, but instead: {type(test_dl)}"
+
+                                    for tdl in test_dl:                                        
+                                        postfix = "" if "real" in tdl.name else "_syn"
+
+                                        test_stats = self.eval_model(tdl, criterion, device)
+                                        test_auroc = test_stats.auroc_macro
+                                        stats[f"test_acc{postfix}"] =  test_stats.acc
+                                        stats[f"test_auroc_macro{postfix}"] =  test_stats.auroc_macro
+                                        stats[f"test_auroc_micro{postfix}"] =  test_stats.auroc_micro
+                                        stats[f"test_y_true{postfix}"] = test_stats.all_labels_pt.numpy()
+                                        stats[f"test_y_pred{postfix}"] = test_stats.all_preds_pt.numpy()
+                                        stats[f"test_f1_micro{postfix}"] = test_stats.f1_micro
+                                        stats[f"test_f1_macro{postfix}"] = test_stats.f1_macro
+                                        
+                                        print(f"Test auroc at the time of best validation auroc: test_auroc={test_auroc} (test_dl.name={tdl.name})")
+                                        print(f"test_stats.f1_macro = {test_stats.f1_macro}")
 
                                 # Save the predictions and true labels
                                 torch.save(all_preds, out_dir / "all_preds.pt")
                                 torch.save(all_labels, out_dir / "all_labels.pt")
 
-                                # # Compute and plot the confusion matrix
-                                # cm = confusion_matrix(all_labels, all_preds_np_argmax)
-
-                                # plt.figure(figsize=(10, 8))
-                                # sns.heatmap(
-                                #     cm,
-                                #     annot=True,
-                                #     fmt="d",
-                                #     cmap="Blues",
-                                #     xticklabels=PHONE_DEF,
-                                #     yticklabels=PHONE_DEF,
-                                # )
-                                # plt.xlabel("Predicted Phoneme")
-                                # plt.ylabel("True Phoneme")
-                                # plt.title(
-                                #     f"Confusion Matrix - Phoneme Classifier (epoch: {i_epoch}, batch: {j_batch})"
-                                # )
-                                # plt.savefig(ROOT_DIR / "plots" / "phoneme_classification_heatmap.png")
-                                # plt.savefig(out_dir / "phoneme_classification_confusion_matrix.png")
-                                # plt.close()
                             else:
                                 count_patience += 1
+                                
                                 if count_patience == patience:
                                     stop_training = True
                                     print(f"Stop training due to no improvements after {patience} steps ...")
                                     print(f"Highest val auroc (real) was: \t{best_val_auroc:.4f}")
                                     print(f"Highest test auroc (real) was: \t{test_auroc:.4f}")
                                     break
+                            
 
                 if stop_training:
                     break
@@ -316,7 +304,7 @@ class PhonemeClassifier(nn.Module):
         acc = correct / total
         class_accuracies = class_correct / class_total
 
-        all_preds = torch.cat(all_preds, dim=0)
+        all_preds = torch.cat(all_preds, dim=0).squeeze()
         all_labels = torch.cat(all_labels, dim=0)
 
         # Convert to numpy arrays for sklearn
@@ -359,7 +347,8 @@ class PhonemeClassifier(nn.Module):
 def train_phoneme_classifier(
         gen_models: list,
         n_samples_train_syn: int,
-        n_samples_val,
+        n_samples_val: int,
+        n_samples_test: int,
         val_dl_real, 
         test_dl_real,
         phoneme_classes,
@@ -426,6 +415,31 @@ def train_phoneme_classifier(
     )
     val_dl_syn.name = "val-syn"
 
+
+    # create synthetic test set
+    datasets = []
+    n_samples = int(n_samples_test / len(gen_models))
+    for model in gen_models:
+        ds = model.create_synthetic_phoneme_dataset(
+            n_samples=n_samples,
+            neural_window_shape=(1, 256, 32),
+        )
+        datasets.append(ds)
+
+    test_ds_syn = SyntheticPhonemeDataset.combine_datasets(datasets=datasets)
+    assert len(test_ds_syn) == n_samples_test
+    assert test_ds_syn.classes == phoneme_classes
+    test_dl_syn = DataLoader(
+        test_ds_syn,
+        batch_size=1,
+        shuffle=False,
+        num_workers=0,
+        pin_memory=True,
+        collate_fn=None,
+    )
+    test_dl_syn.name = "test-syn"
+
+
     n_classes = len(phoneme_classes)
     # args["n_classes"] = n_classes
     model = PhonemeClassifier(classes=phoneme_classes, input_shape=input_shape).to(device)
@@ -448,7 +462,7 @@ def train_phoneme_classifier(
     output = model.train_model(
         train_dl=train_dl_syn,
         val_dls=[val_dl_syn, val_dl_real],
-        test_dl=test_dl_real,
+        test_dl=[test_dl_syn, test_dl_real],
         n_classes=n_classes,
         optimizer=optimizer,
         criterion=criterion,
@@ -496,7 +510,7 @@ def train_phoneme_classifier_real(
     output = model.train_model(
         train_dl=train_dl_syn,
         val_dls=[val_dl],
-        test_dl=test_dl,
+        test_dl=[test_dl],
         n_classes=n_classes,
         optimizer=optimizer,
         criterion=criterion,

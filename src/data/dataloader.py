@@ -8,6 +8,7 @@ class MergedDataLoader:
             prop1 = len(loader1.dataset) / (len(loader1.dataset) + len(loader2.dataset))
         else:
             assert 0.0 <= prop1 <= 1.0
+        print(f"prop1 = {prop1}")
 
         assert (
             loader1.batch_size == loader2.batch_size
